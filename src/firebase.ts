@@ -3,14 +3,14 @@ import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getDatabase } from "firebase/database";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCLGJCtiJGH6xtdGrhDTvFva4Yhu49f2yE",
-  authDomain: "ffgloryshop.firebaseapp.com",
-  databaseURL: "https://ffgloryshop-default-rtdb.firebaseio.com",
-  projectId: "ffgloryshop",
-  storageBucket: "ffgloryshop.firebasestorage.app",
-  messagingSenderId: "535100234729",
-  appId: "1:535100234729:web:f20eef43c5cbe5b77bc978",
-  measurementId: "G-RLS4PXKHSS",
+  apiKey: "AIzaSyCuJBkQtpopn2azuv3YUjOYAZ3Hnv8DYu8",
+  authDomain: "tech-store-e4449.firebaseapp.com",
+  databaseURL: "https://tech-store-e4449-default-rtdb.firebaseio.com/",
+  projectId: "tech-store-e4449",
+  storageBucket: "tech-store-e4449.firebasestorage.app",
+  messagingSenderId: "337071303877",
+  appId: "1:337071303877:web:3a29ef5f22643f234dd4ac",
+  measurementId: "G-FXM6PH044Q",
 };
 
 const app = initializeApp(firebaseConfig);

@@ -58,66 +58,64 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, []);
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-cyan-500/20 bg-[#060b10]/95 backdrop-blur-xl px-2 sm:px-5 py-2.5 shadow-[0_4px_30px_rgba(0,0,0,0.7)]">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-4">
+    <header className="sticky top-0 z-40 w-full border-b border-cyan-500/20 bg-[#060b10]/95 backdrop-blur-xl px-2 sm:px-5 py-2 sm:py-2.5 shadow-[0_4px_30px_rgba(0,0,0,0.7)]">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-1.5 sm:gap-4 min-w-0">
         {/* Left Side: Glowing Icon Box + FFGLORY + ONLINE + Low Latency Node */}
         <div
           onClick={() => setActiveTab("dashboard")}
-          className="flex items-center gap-2.5 sm:gap-3 cursor-pointer select-none group"
+          className="flex items-center gap-1.5 sm:gap-3 cursor-pointer select-none group min-w-0 shrink"
         >
           {/* Official Logo Container */}
-          <div className="relative flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl bg-[#09141f] border border-cyan-400/60 shadow-[0_0_18px_rgba(0,240,255,0.45),inset_0_0_10px_rgba(0,240,255,0.2)] group-hover:scale-105 transition-all overflow-hidden p-0.5">
+          <div className="relative flex h-8 w-8 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-lg sm:rounded-2xl bg-[#09141f] border border-cyan-400/60 shadow-[0_0_18px_rgba(0,240,255,0.45),inset_0_0_10px_rgba(0,240,255,0.2)] group-hover:scale-105 transition-all overflow-hidden p-0.5">
             <img
               src={OFFICIAL_LOGO_URL}
               alt="ffglorynepal logo"
-              className="h-full w-full object-cover rounded-xl"
+              className="h-full w-full object-cover rounded-md sm:rounded-xl"
               referrerPolicy="no-referrer"
             />
           </div>
 
           {/* Title & Subtitle */}
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <span className="text-lg sm:text-xl font-black tracking-wider font-orbitron flex items-baseline">
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <span className="text-xs sm:text-xl font-black tracking-wider font-orbitron flex items-baseline truncate">
                 <span className="text-[#00f0ff] drop-shadow-[0_0_10px_rgba(0,240,255,0.5)]">FFGLORY</span>
-                <span className="text-[#fef9c3] drop-shadow-[0_0_8px_rgba(254,240,138,0.4)] ml-1">NEPAL</span>
+                <span className="text-[#fef9c3] drop-shadow-[0_0_8px_rgba(254,240,138,0.4)] ml-0.5 sm:ml-1 hidden xs:inline">NEPAL</span>
               </span>
 
               {/* ONLINE Pill */}
-              <span className="inline-flex items-center rounded-md bg-[#072018]/90 border border-[#00e599]/60 px-1.5 py-0.2 text-[9px] sm:text-[10px] font-black text-[#00e599] font-orbitron uppercase tracking-wider shadow-[0_0_10px_rgba(0,229,153,0.3)]">
+              <span className="hidden sm:inline-flex items-center rounded bg-[#072018]/90 border border-[#00e599]/60 px-1 py-0.1 text-[8px] sm:text-[10px] font-black text-[#00e599] font-orbitron uppercase tracking-wider shadow-[0_0_10px_rgba(0,229,153,0.3)] shrink-0">
                 ONLINE
               </span>
             </div>
 
             {/* Subtitle with broadcast icon and rate */}
-            <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-cyan-400/90 font-mono tracking-tight -mt-0.5">
-              <Radio className="h-3 w-3 text-cyan-400 animate-pulse" />
-              <span className="text-cyan-300 font-medium">Low Latency Node</span>
-              <span className="text-slate-500 font-bold">·</span>
-              <span className="text-slate-300">
-                1 Credit = <span className="font-bold text-amber-300 font-mono">RS {CREDIT_RATE_RS}</span>
+            <div className="flex items-center gap-1 text-[8px] sm:text-[11px] text-cyan-400/90 font-mono tracking-tight -mt-0.5 truncate">
+              <Radio className="h-2 w-2 sm:h-3 sm:w-3 text-cyan-400 animate-pulse shrink-0" />
+              <span className="text-slate-300 truncate">
+                1 Cr = <span className="font-bold text-amber-300 font-mono">RS {CREDIT_RATE_RS}</span>
               </span>
             </div>
           </div>
         </div>
 
         {/* Right Side: Player Pill, Credits with +, Bell, Exit */}
-        <div ref={dropdownRef} className="flex items-center gap-1.5 sm:gap-2.5 relative">
+        <div ref={dropdownRef} className="flex items-center gap-1 sm:gap-2 relative shrink-0">
           {/* Player Pill */}
           <div className="relative">
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="flex items-center gap-1.5 sm:gap-2 rounded-full bg-[#08131d] hover:bg-[#0c1a27] border border-cyan-500/35 hover:border-cyan-400/60 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-white transition-all shadow-[0_0_12px_rgba(0,240,255,0.15)] cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 rounded-full bg-[#08131d] hover:bg-[#0c1a27] border border-cyan-500/35 hover:border-cyan-400/60 px-1.5 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-white transition-all shadow-[0_0_12px_rgba(0,240,255,0.15)] cursor-pointer"
             >
               {/* Glowing Cyan Status Dot */}
-              <span className="h-2 w-2 rounded-full bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]" />
-              <span className="font-bold text-white max-w-[90px] sm:max-w-[130px] truncate tracking-wide">
+              <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-[#00f0ff] shadow-[0_0_8px_#00f0ff] shrink-0" />
+              <span className="font-bold text-white max-w-[35px] xs:max-w-[70px] sm:max-w-[120px] truncate tracking-wide">
                 {formattedUsername}
               </span>
-              <span className="text-[10px] font-mono text-cyan-400/80 font-bold">
+              <span className="hidden md:inline text-[9px] sm:text-[10px] font-mono text-cyan-400/80 font-bold">
                 [{roleDisplay}]
               </span>
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+              <ChevronDown className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-slate-400 shrink-0" />
             </button>
 
             {/* Dropdown Menu */}
@@ -155,16 +153,16 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          {/* Credits Pill (Gold/Amber Neon matching screenshot) */}
-          <div className="flex items-center gap-1.5 sm:gap-2 rounded-full bg-[#0d1217] border border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.25)] px-2.5 sm:px-3 py-1">
+          {/* Credits Pill (Gold/Amber Neon) */}
+          <div className="flex items-center gap-1 sm:gap-1.5 rounded-full bg-[#0d1217] border border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.25)] px-1.5 sm:px-3 py-1">
             {/* Double Coins Icon */}
-            <div className="flex items-center -space-x-1 text-amber-400">
+            <div className="flex items-center text-amber-400 shrink-0">
               <Coins className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </div>
 
             {/* CREDITS: X */}
-            <div className="text-[11px] sm:text-xs font-bold text-slate-200 uppercase tracking-wider font-orbitron flex items-center gap-1">
-              <span className="hidden xs:inline text-amber-400/90 text-[10px] sm:text-[11px]">CREDITS:</span>
+            <div className="text-[10px] sm:text-xs font-bold text-slate-200 uppercase tracking-wider font-orbitron flex items-center gap-1">
+              <span className="hidden sm:inline text-amber-400/90 text-[10px] sm:text-[11px]">CREDITS:</span>
               <span className="text-amber-400 font-mono font-black text-xs sm:text-sm">
                 {credits}
               </span>
@@ -173,10 +171,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Orange Plus Button */}
             <button
               onClick={onOpenDeposit}
-              className="flex h-5 w-5 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-[0_0_10px_rgba(245,158,11,0.5)] transition-all active:scale-95 cursor-pointer ml-0.5"
+              className="flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-[0_0_10px_rgba(245,158,11,0.5)] transition-all active:scale-95 cursor-pointer ml-0.5 shrink-0"
               title="Recharge Credits (eSewa / Khalti)"
             >
-              <Plus className="h-3.5 w-3.5 stroke-[3]" />
+              <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5 stroke-[3]" />
             </button>
           </div>
 
@@ -184,10 +182,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="relative">
             <button
               onClick={() => setNotificationOpen(!notificationOpen)}
-              className="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-[#08121a] border border-slate-800 hover:border-cyan-500/40 text-slate-400 hover:text-white transition-all cursor-pointer shadow-sm"
+              className="p-1 sm:p-2 rounded-lg sm:rounded-2xl bg-[#08121a] border border-slate-800 hover:border-cyan-500/40 text-slate-400 hover:text-white transition-all cursor-pointer shadow-sm"
               title="System Alerts & Notifications"
             >
-              <Bell className="h-4 w-4" />
+              <Bell className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_6px_#00f0ff]" />
             </button>
 
@@ -212,11 +210,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* EXIT Button (Pink/Rose neon outline matching screenshot "[→ EXIT") */}
           <button
             onClick={logout}
-            className="flex items-center gap-1 sm:gap-1.5 rounded-xl sm:rounded-2xl bg-[#140a10] hover:bg-[#1f0e19] border border-rose-500/40 hover:border-rose-400/80 px-2.5 sm:px-3.5 py-1.5 text-xs font-black text-rose-300 hover:text-rose-200 transition-all shadow-[0_0_12px_rgba(244,63,94,0.2)] hover:shadow-[0_0_18px_rgba(244,63,94,0.4)] cursor-pointer font-orbitron"
+            className="flex items-center gap-1 sm:gap-1.5 rounded-lg sm:rounded-2xl bg-[#140a10] hover:bg-[#1f0e19] border border-rose-500/40 hover:border-rose-400/80 px-1.5 sm:px-3.5 py-1 sm:py-1.5 text-xs font-black text-rose-300 hover:text-rose-200 transition-all shadow-[0_0_12px_rgba(244,63,94,0.2)] hover:shadow-[0_0_18px_rgba(244,63,94,0.4)] cursor-pointer font-orbitron"
             title="Sign out of account"
           >
-            <LogOut className="h-3.5 w-3.5 stroke-[2.5]" />
-            <span className="text-[10px] sm:text-xs tracking-wider">EXIT</span>
+            <LogOut className="h-3.5 w-3.5 stroke-[2.5] shrink-0" />
+            <span className="text-[9px] sm:text-xs tracking-wider hidden xs:inline">EXIT</span>
           </button>
         </div>
       </div>

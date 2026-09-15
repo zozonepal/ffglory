@@ -37,6 +37,22 @@ export const AdminView: React.FC = () => {
   const { currentUser, isAdmin, rtdbPermissionDenied } = useAuth();
   const [copiedRule, setCopiedRule] = useState(false);
 
+  if (!isAdmin) {
+    return (
+      <div className="rounded-3xl border border-rose-500/30 bg-[#120a10]/90 p-8 sm:p-12 text-center backdrop-blur-xl shadow-2xl my-8">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 mx-auto mb-4">
+          <ShieldAlert className="h-8 w-8" />
+        </div>
+        <h3 className="text-xl sm:text-2xl font-black text-rose-300 font-['Outfit']">
+          ADMIN ACCESS RESTRICTED
+        </h3>
+        <p className="text-xs sm:text-sm text-slate-400 mt-2 max-w-md mx-auto leading-relaxed">
+          Admin access is restricted strictly to authorized staff (<span className="font-mono text-cyan-300">deepsonpokhrel12@gmail.com</span>). Please log in with admin credentials to access this control center.
+        </p>
+      </div>
+    );
+  }
+
   // 1. Provider Balance State
   const [providerBalance, setProviderBalance] = useState<ProviderBalanceResponse | null>(null);
   const [loadingBalance, setLoadingBalance] = useState(false);
@@ -283,7 +299,7 @@ export const AdminView: React.FC = () => {
                   <span>{copiedRule ? "Rules Copied!" : "Copy Suggested Rules"}</span>
                 </button>
                 <a
-                  href="https://console.firebase.google.com/project/ffgloryshop/database/rules"
+                  href="https://console.firebase.google.com/project/tech-store-e4449/database/rules"
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-600 text-xs font-semibold text-slate-300 hover:text-white transition-colors"

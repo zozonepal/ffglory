@@ -109,8 +109,12 @@ const notifySubscribers = (path: string, data: any) => {
 export const resilientGet = async (path: string, fallback: any = null): Promise<any> => {
   try {
     const dbRef = ref(db, path);
-    const snapshot = await get(dbRef);
-    if (snapshot.exists()) {
+    // 2-second timeout guard to prevent hanging on slow network or restricted RTDB
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("RTDB timeout")), 2000)
+    );
+    const snapshot = (await Promise.race([get(dbRef), timeoutPromise])) as any;
+    if (snapshot && typeof snapshot.exists === "function" && snapshot.exists()) {
       const val = snapshot.val();
       setLocalData(path, val);
       return val;
@@ -121,7 +125,7 @@ export const resilientGet = async (path: string, fallback: any = null): Promise<
       notifyStatusChange(true);
       return getLocalData(path, fallback);
     }
-    console.warn("RTDB GET warning for", path, err?.message);
+    console.warn("RTDB GET fallback for", path, err?.message);
     return getLocalData(path, fallback);
   }
 };

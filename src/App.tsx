@@ -6,6 +6,7 @@ import { DepositView } from "./views/DepositView";
 import { HistoryView } from "./views/HistoryView";
 import { TransactionsView } from "./views/TransactionsView";
 import { SettingsView } from "./views/SettingsView";
+import { AdminView } from "./views/AdminView";
 import { Navbar } from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
 import { CREDIT_RATE_RS } from "./services/api";
@@ -66,6 +67,7 @@ function MainApp() {
             {activeTab === "history" && <HistoryView />}
             {activeTab === "settings" && <SettingsView />}
             {activeTab === "deposit" && <DepositView />}
+            {activeTab === "admin" && <AdminView />}
           </div>
         </div>
       </main>

@@ -5,7 +5,9 @@ import {
   History,
   LifeBuoy,
   Settings,
+  ShieldCheck,
 } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 
 interface SidebarProps {
   activeTab: string;
@@ -17,6 +19,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   setActiveTab,
 }) => {
+  const { isAdmin } = useAuth();
+
   const navItems = [
     {
       id: "dashboard",
@@ -39,6 +43,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Settings,
     },
   ];
+
+  if (isAdmin) {
+    navItems.push({
+      id: "admin",
+      label: "Admin Panel",
+      icon: ShieldCheck,
+    });
+  }
 
   return (
     <>

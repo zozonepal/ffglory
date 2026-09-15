@@ -27,7 +27,7 @@ import {
   verifyFonepayPayment,
 } from "../services/api";
 import { FonepayCreateQrResponse, PaymentRequest } from "../types";
-import { resilientOnValue, resilientPush } from "../services/resilientDb";
+import { resilientOnValue, resilientPush, resilientUpdate, resilientSet } from "../services/resilientDb";
 
 interface DepositViewProps {
   onClose?: () => void;
@@ -151,21 +151,49 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
     try {
       // 1. Credit the user balance
       const currentCredits = userProfile?.credits || 0;
-      await updateUserCredits(currentCredits + confirmedCredits);
+      const updatedCredits = currentCredits + confirmedCredits;
+      await updateUserCredits(updatedCredits);
 
-      // 2. Log transaction in RTDB
+      // 2. Log transaction and user profile details in database
       if (currentUser) {
+        const timestamp = Date.now();
+        const txId = confirmedBillId || confirmedRemark;
+
         const newRecord: Omit<PaymentRequest, "id"> = {
           userId: currentUser.uid,
           userEmail: currentUser.email || "Unknown",
           amountRs: confirmedAmount,
           credits: confirmedCredits,
-          transactionId: confirmedBillId || confirmedRemark,
+          transactionId: txId,
           paymentMethod: "fonepay",
           status: "approved",
-          createdAt: Date.now(),
+          createdAt: timestamp,
         };
+        // Global payment requests node
         await resilientPush("payment_requests", newRecord);
+
+        // User-specific transaction history node
+        await resilientPush(`users/${currentUser.uid}/transactions`, {
+          transactionId: txId,
+          remark: confirmedRemark,
+          billId: confirmedBillId || null,
+          amountRs: confirmedAmount,
+          credits: confirmedCredits,
+          paymentMethod: "fonepay",
+          status: "approved",
+          timestamp,
+        });
+
+        // Store / update user profile record in database with last topup details
+        await resilientUpdate(`users/${currentUser.uid}`, {
+          uid: currentUser.uid,
+          email: currentUser.email || "Unknown",
+          credits: updatedCredits,
+          lastTopupAmountRs: confirmedAmount,
+          lastTopupCredits: confirmedCredits,
+          lastTopupAt: timestamp,
+          updatedAt: timestamp,
+        });
       }
 
       // 3. Trigger success UI
@@ -213,30 +241,22 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
         return true;
       } else {
         // Payment NOT received yet
-        // CRITICAL: DO NOT save in database like pending!
-        // Directly display explicit feedback that payment has not been received yet.
-        if (isManualClick) {
-          setManualVerifyAlert({
-            type: "error",
-            title: "Payment Not Received",
-            message: `No payment was received on Fonepay for remark "${cleanRemark}". Please scan the QR code and pay RS ${amount.toLocaleString()} in your mobile banking or wallet app (eSewa, Khalti, etc.) before clicking verify.`,
-          });
-          setVerifyStatusText("Payment not detected yet. Awaiting transfer...");
-        } else {
-          setVerifyStatusText("Waiting for payment transfer... (System checking automatically)");
-        }
-        return false;
-      }
-    } catch (err: any) {
-      console.warn("Fonepay verification poll error:", err.message);
-      if (isManualClick) {
         setManualVerifyAlert({
           type: "error",
           title: "Payment Not Received",
-          message: err.message || "Unable to confirm payment from Fonepay gateway at this moment. If you haven't paid yet, please complete the transfer first.",
+          message: `No payment was received on Fonepay for remark "${cleanRemark}". Please scan the QR code and pay RS ${amount.toLocaleString()} in your mobile banking or wallet app (eSewa, Khalti, etc.) before clicking "Verify Payment".`,
         });
+        setVerifyStatusText("Payment not detected. Please complete transfer in your app and click 'Verify Payment'.");
+        return false;
       }
-      setVerifyStatusText("Listening for transfer on Fonepay gateway...");
+    } catch (err: any) {
+      console.warn("Fonepay verification error:", err.message);
+      setManualVerifyAlert({
+        type: "error",
+        title: "Payment Not Received",
+        message: err.message || "Unable to confirm payment from Fonepay gateway at this moment. If you haven't paid yet, please complete the transfer first.",
+      });
+      setVerifyStatusText("Ready for verification. Click 'Verify Payment' after paying.");
       return false;
     } finally {
       setVerifying(false);
@@ -267,22 +287,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
     try {
       const data = await createFonepayQr(totalPayableRs, uniqueRemark);
       setQrData(data);
-      setVerifyStatusText("Fonepay QR generated! Scan with any banking app to pay.");
-
-      // Start automatic polling every 3.5 seconds (quiet background mode)
-      pollTimerRef.current = setInterval(async () => {
-        const verified = await checkVerification(
-          uniqueRemark,
-          data.billId || uniqueRemark,
-          activeCredits,
-          totalPayableRs,
-          false // isManualClick = false
-        );
-        if (verified && pollTimerRef.current) {
-          clearInterval(pollTimerRef.current);
-          pollTimerRef.current = null;
-        }
-      }, 3500);
+      setVerifyStatusText("Fonepay QR generated! Scan with any banking app & click 'Verify Payment' below.");
     } catch (err: any) {
       console.error("Failed to generate Fonepay QR:", err);
       setQrError(err.message || "Failed to generate dynamic Fonepay QR. Please try again.");
@@ -370,23 +375,23 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
           <div className="absolute top-0 left-1/4 right-1/4 h-24 bg-gradient-to-b from-cyan-500/10 via-emerald-500/5 to-transparent blur-2xl pointer-events-none" />
 
           {/* Top Header Row */}
-          <div className="flex items-start justify-between gap-3 relative z-10 mb-6">
-            <div className="flex items-center gap-3.5">
-              <div className="flex h-12 w-12 sm:h-14 sm:w-14 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 border border-amber-400/40 text-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.25)]">
-                <Coins className="h-6 w-6 sm:h-7 sm:w-7" />
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative z-10 mb-5 sm:mb-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 sm:h-14 sm:w-14 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 border border-amber-400/40 text-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.25)]">
+                <Coins className="h-5 w-5 sm:h-7 sm:w-7" />
               </div>
               <div>
-                <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-wider font-orbitron">
+                <h2 className="text-lg sm:text-2xl font-black text-white uppercase tracking-wider font-orbitron">
                   RECHARGE CREDITS
                 </h2>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
                   Instant automated Fonepay QR • Scanned by all Nepali Banks & Wallets
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="rounded-full bg-[#0a1e1e] border border-emerald-500/40 px-3 py-1.5 text-[11px] font-bold text-emerald-400 tracking-wide font-mono">
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <div className="rounded-full bg-[#0a1e1e] border border-emerald-500/40 px-2.5 py-1 text-[10px] sm:text-[11px] font-bold text-emerald-400 tracking-wide font-mono">
                 RS {CREDIT_RATE_RS} / Credit
               </div>
 
@@ -404,7 +409,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
 
           {/* ERROR ALERT */}
           {qrError && (
-            <div className="relative z-10 mb-5 flex items-start gap-2.5 rounded-2xl bg-rose-950/60 border border-rose-500/40 p-3.5 text-xs text-rose-300">
+            <div className="relative z-10 mb-5 flex items-start gap-2.5 rounded-2xl bg-rose-950/60 border border-rose-500/40 p-3.5 text-xs text-rose-300 break-words">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-rose-400" />
               <span>{qrError}</span>
             </div>
@@ -412,13 +417,13 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
 
           {/* VIEW A: SELECT CREDIT PACK (when no QR is generated yet) */}
           {!qrData && (
-            <div className="relative z-10 space-y-6">
+            <div className="relative z-10 space-y-5 sm:space-y-6">
               <div>
-                <div className="text-[11px] font-bold text-cyan-400 uppercase tracking-widest mb-3 font-orbitron flex items-center gap-1.5">
+                <div className="text-[10px] sm:text-[11px] font-bold text-cyan-400 uppercase tracking-widest mb-3 font-orbitron flex items-center gap-1.5">
                   <span>1. SELECT CREDIT PACK</span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
                   {CREDIT_PACKS.map((pack) => {
                     const isSelected = !isCustom && selectedPackCredits === pack.credits;
                     const packPrice = pack.credits * CREDIT_RATE_RS;
@@ -429,25 +434,25 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
                           setSelectedPackCredits(pack.credits);
                           setIsCustom(false);
                         }}
-                        className={`relative p-3.5 sm:p-4 rounded-2xl cursor-pointer transition-all duration-200 border ${
+                        className={`relative p-3 sm:p-4 rounded-2xl cursor-pointer transition-all duration-200 border ${
                           isSelected
                             ? "bg-[#0c1822] border-amber-400/90 shadow-[0_0_20px_rgba(245,158,11,0.3)] ring-1 ring-amber-400/50"
                             : "bg-[#0a131b] border-slate-800/90 hover:border-slate-700 hover:bg-[#0d1a24]"
                         }`}
                       >
                         {pack.popular && (
-                          <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-[9px] uppercase tracking-wider px-2.5 py-0.5 rounded-full shadow-[0_0_12px_rgba(245,158,11,0.6)]">
+                          <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-[8px] sm:text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-[0_0_12px_rgba(245,158,11,0.6)]">
                             POPULAR
                           </div>
                         )}
 
-                        <div className="text-sm sm:text-base font-black text-white font-orbitron tracking-tight">
+                        <div className="text-xs sm:text-base font-black text-white font-orbitron tracking-tight">
                           {pack.label}
                         </div>
-                        <div className="text-xs sm:text-sm font-bold text-amber-400 mt-1 font-mono">
+                        <div className="text-xs sm:text-sm font-bold text-amber-400 mt-0.5 sm:mt-1 font-mono">
                           RS {packPrice.toLocaleString()}
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-1 truncate">
+                        <div className="text-[9px] sm:text-[10px] text-slate-400 mt-0.5 truncate">
                           {pack.subtitle}
                         </div>
                       </div>
@@ -457,13 +462,13 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
                   {/* Custom Amount Option */}
                   <div
                     onClick={() => setIsCustom(true)}
-                    className={`p-3.5 sm:p-4 rounded-2xl cursor-pointer transition-all duration-200 border ${
+                    className={`p-3 sm:p-4 rounded-2xl cursor-pointer transition-all duration-200 border ${
                       isCustom
                         ? "bg-[#0c1822] border-cyan-400/90 shadow-[0_0_20px_rgba(0,240,255,0.3)] ring-1 ring-cyan-400/50"
                         : "bg-[#0a131b] border-slate-800/90 hover:border-slate-700 hover:bg-[#0d1a24]"
                     }`}
                   >
-                    <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                    <div className="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                       CUSTOM AMOUNT
                     </div>
                     <input
@@ -475,9 +480,9 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
                         setIsCustom(true);
                         setCustomCredits(e.target.value);
                       }}
-                      className="w-full mt-1.5 bg-[#050a0f] border border-slate-700/80 rounded-xl px-2.5 py-1 text-xs font-mono text-cyan-300 placeholder:text-slate-500 focus:outline-none focus:border-cyan-400"
+                      className="w-full mt-1 bg-[#050a0f] border border-slate-700/80 rounded-xl px-2 py-1 text-xs font-mono text-cyan-300 placeholder:text-slate-500 focus:outline-none focus:border-cyan-400"
                     />
-                    <div className="text-[10px] text-slate-400 mt-1 truncate">
+                    <div className="text-[9px] sm:text-[10px] text-slate-400 mt-1 truncate">
                       {isCustom && customCredits
                         ? `RS ${(Math.max(1, parseInt(customCredits, 10) || 1) * CREDIT_RATE_RS).toLocaleString()}`
                         : "Custom Qty"}
@@ -488,15 +493,15 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
 
               {/* Supported Payment Channels */}
               <div>
-                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2 font-orbitron flex items-center gap-1.5">
-                  <Smartphone className="h-3.5 w-3.5 text-cyan-400" />
+                <div className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2 font-orbitron flex items-center gap-1.5">
+                  <Smartphone className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
                   <span>SUPPORTED PAYMENT APPS (ALL SCANNABLE)</span>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5 sm:gap-2">
                   {SUPPORTED_APPS.map((app) => (
                     <span
                       key={app.name}
-                      className={`text-[10px] font-bold px-2.5 py-1 rounded-xl border ${app.color}`}
+                      className={`text-[9px] sm:text-[10px] font-bold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-xl border ${app.color}`}
                     >
                       {app.name}
                     </span>
@@ -505,19 +510,19 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
               </div>
 
               {/* TOTAL PAYABLE & VERIFIED GATEWAY BAR */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-4 rounded-2xl bg-[#070e14] border border-slate-800/90">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3.5 sm:p-4 rounded-2xl bg-[#070e14] border border-slate-800/90">
                 <div className="text-xs text-slate-300 font-medium">
                   TOTAL PAYABLE:{" "}
-                  <span className="text-base sm:text-lg font-black text-amber-400 font-mono">
+                  <span className="text-sm sm:text-lg font-black text-amber-400 font-mono">
                     RS {totalPayableRs.toLocaleString()}
                   </span>{" "}
-                  <span className="text-slate-400 text-[11px]">
+                  <span className="text-slate-400 text-[10px] sm:text-[11px]">
                     ({activeCredits} × RS {CREDIT_RATE_RS})
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold">
-                  <ShieldCheck className="h-4 w-4" />
+                <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-emerald-400 font-semibold">
+                  <ShieldCheck className="h-4 w-4 shrink-0" />
                   <span>Fonepay Automated Gateway</span>
                 </div>
               </div>
@@ -527,19 +532,19 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
                 type="button"
                 disabled={generatingQr}
                 onClick={handleGenerateQr}
-                className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#00f0ff] via-[#00e599] to-[#00f0ff] bg-[length:200%_auto] hover:bg-right text-slate-950 font-black text-xs sm:text-sm uppercase tracking-wider py-4 transition-all duration-300 shadow-[0_0_30px_rgba(0,240,255,0.4)] hover:shadow-[0_0_40px_rgba(0,240,255,0.7)] cursor-pointer font-orbitron disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#00f0ff] via-[#00e599] to-[#00f0ff] bg-[length:200%_auto] hover:bg-right text-slate-950 font-black text-xs sm:text-sm uppercase tracking-wider py-3.5 sm:py-4 px-3 transition-all duration-300 shadow-[0_0_30px_rgba(0,240,255,0.4)] hover:shadow-[0_0_40px_rgba(0,240,255,0.7)] cursor-pointer font-orbitron disabled:opacity-50 text-center break-words leading-tight"
               >
                 {generatingQr ? (
                   <>
-                    <div className="h-4 w-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                    <div className="h-4 w-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin shrink-0" />
                     <span>Generating Secure Fonepay QR...</span>
                   </>
                 ) : (
                   <>
-                    <span>
+                    <span className="truncate">
                       GENERATE FONEPAY QR & PAY RS {totalPayableRs.toLocaleString()}
                     </span>
-                    <ArrowRight className="h-4 w-4 stroke-[3]" />
+                    <ArrowRight className="h-4 w-4 stroke-[3] shrink-0" />
                   </>
                 )}
               </button>
@@ -642,7 +647,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
                     </div>
 
                     <p className="text-[11px] text-slate-400 leading-snug">
-                      Your mobile banking or wallet app (eSewa, Khalti, Mobile Banking) reads remark <strong className="text-amber-300 font-mono">{activeRemark}</strong>. The verification reading system detects and credits your account automatically using this remark.
+                      Your mobile banking or wallet app (eSewa, Khalti, Mobile Banking) includes remark <strong className="text-amber-300 font-mono">{activeRemark}</strong>. After completing the payment in your app, click "Verify Payment" below to verify and credit your account.
                     </p>
                   </div>
 

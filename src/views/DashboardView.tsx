@@ -25,7 +25,7 @@ interface DashboardViewProps {
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) => {
-  const { currentUser, userProfile, updateUserCredits } = useAuth();
+  const { currentUser, userProfile, deductUserCredits } = useAuth();
 
   const [guildId, setGuildId] = useState("");
   const [serverRegion, setServerRegion] = useState<string>(() => {
@@ -108,7 +108,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
 
   const handleLaunch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser) return;
+    if (!currentUser || loading) return;
 
     if (!guildId.trim()) {
       setLaunchResult({
@@ -131,9 +131,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
       // 1. Call provider endpoint /launch strictly with user-selected guild server
       const response = await launchBotAction(guildId.trim(), serverRegion);
 
-      // 2. Upon HTTP 200 success, deduct 1 credit from balance
-      const newCreditBalance = Math.max(0, credits - 1);
-      await updateUserCredits(newCreditBalance);
+      // 2. Upon HTTP 200 success, deduct EXACTLY 1 credit from user balance (1 Squad = 1 Credit)
+      const remainingCredits = await deductUserCredits(1);
 
       const confirmedServerCode = response?.server || selectedServerInfo.code;
       const matchedServerInfo =
@@ -150,11 +149,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
       };
       await resilientPush(`users/${currentUser.uid}/history`, logEntry);
 
-      // 4. Update UI feedback with explicit confirmation of the chosen guild server
+      // 4. Update UI feedback with explicit confirmation of 1 credit deduction
       const groupIdSuffix = response?.group_id ? ` (Group ID: ${response.group_id})` : "";
       setLaunchResult({
         success: true,
-        message: `Bot successfully dispatched to ${matchedServerInfo.flag} ${matchedServerInfo.name} Guild Server (${confirmedServerCode})! 1 Credit deducted.${groupIdSuffix}`,
+        message: `Bot successfully dispatched to ${matchedServerInfo.flag} ${matchedServerInfo.name} Guild Server (${confirmedServerCode})! 1 Credit deducted (Remaining: ${remainingCredits} Credits).${groupIdSuffix}`,
         details: response,
       });
 
@@ -214,63 +213,63 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
       {/* Clan & Guild Automation Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-1">
         <div>
-          <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight font-['Outfit'] flex items-center gap-2">
-            <Zap className="h-5 w-5 text-amber-400" />
-            Clan & Guild Automation
+          <h1 className="text-lg sm:text-2xl font-extrabold text-white tracking-tight font-['Outfit'] flex items-center gap-2">
+            <Zap className="h-5 w-5 text-amber-400 shrink-0" />
+            <span>Clan & Guild Automation</span>
           </h1>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
             Automated FF Glory Clan task launcher • 1 Credit = RS {CREDIT_RATE_RS}
           </p>
         </div>
 
         <button
           onClick={onOpenDeposit}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/30 text-amber-300 text-xs font-bold transition-all self-start sm:self-auto cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/30 text-amber-300 text-[11px] sm:text-xs font-bold transition-all self-start sm:self-auto cursor-pointer"
         >
-          <Coins className="h-3.5 w-3.5" />
+          <Coins className="h-3.5 w-3.5 shrink-0" />
           <span>Load Credits (eSewa / Khalti)</span>
         </button>
       </div>
 
       {/* Main Bot Launch Card - Exactly styled with Neon aesthetic */}
-      <div className="rounded-3xl border border-cyan-500/25 bg-[#08121a]/95 backdrop-blur-xl p-5 sm:p-7 shadow-[0_0_40px_rgba(0,240,255,0.06)] relative overflow-hidden">
+      <div className="rounded-2xl sm:rounded-3xl border border-cyan-500/25 bg-[#08121a]/95 backdrop-blur-xl p-4 sm:p-7 shadow-[0_0_40px_rgba(0,240,255,0.06)] relative overflow-hidden">
         {/* Neon decorative glow */}
         <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-b from-cyan-500/10 via-emerald-500/5 to-transparent rounded-full blur-3xl pointer-events-none -z-0" />
 
         {/* Header */}
-        <div className="flex items-center gap-3 mb-6 relative z-10">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.3)]">
-            <Zap className="h-6 w-6 fill-cyan-400/20" />
+        <div className="flex items-center gap-3 mb-5 sm:mb-6 relative z-10">
+          <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl sm:rounded-2xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.3)]">
+            <Zap className="h-5 w-5 sm:h-6 sm:w-6 fill-cyan-400/20" />
           </div>
           <div>
-            <h2 className="text-lg sm:text-xl font-black text-white tracking-wider font-orbitron uppercase">
+            <h2 className="text-base sm:text-xl font-black text-white tracking-wider font-orbitron uppercase">
               Launch Guild Bot Action
             </h2>
-            <p className="text-xs text-slate-400">
+            <p className="text-[11px] sm:text-xs text-slate-400">
               Select your clan's Guild Server and submit Guild ID to start automated clan glory farming.
             </p>
           </div>
         </div>
 
         {/* Launch Form */}
-        <form onSubmit={handleLaunch} className="space-y-5 relative z-10">
+        <form onSubmit={handleLaunch} className="space-y-4 sm:space-y-5 relative z-10">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Guild Server / Region Selector */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <Globe2 className="h-3.5 w-3.5 text-cyan-400" />
+                <label className="text-[11px] sm:text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Globe2 className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
                   GUILD SERVER / REGION ({SUPPORTED_SERVERS.length})
                 </label>
-                <span className="text-[10px] text-cyan-400 font-orbitron font-semibold">
-                  14 GUILD SERVERS ONLINE
+                <span className="text-[9px] sm:text-[10px] text-cyan-400 font-orbitron font-semibold">
+                  14 SERVERS ONLINE
                 </span>
               </div>
               <div className="relative">
                 <select
                   value={serverRegion}
                   onChange={(e) => handleServerChange(e.target.value)}
-                  className="w-full appearance-none rounded-xl bg-[#0e1015] text-white border border-slate-700/80 hover:border-slate-600 focus:border-cyan-400 px-4 py-3.5 text-sm font-semibold focus:outline-none transition-colors cursor-pointer"
+                  className="w-full appearance-none rounded-xl bg-[#0e1015] text-white border border-slate-700/80 hover:border-slate-600 focus:border-cyan-400 px-3.5 py-3 text-xs sm:text-sm font-semibold focus:outline-none transition-colors cursor-pointer truncate pr-8"
                 >
                   {SUPPORTED_SERVERS.map((srv) => (
                     <option key={srv.code} value={srv.code}>
@@ -278,31 +277,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
                     </option>
                   ))}
                 </select>
-                <div className="absolute inset-y-0 right-0 flex items-center pr-3.5 pointer-events-none text-cyan-400">
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-cyan-400">
                   <span className="text-xs font-mono">▼</span>
                 </div>
               </div>
 
               {/* Active Target Server Confirmation Badge */}
-              <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-xl bg-[#091522] border border-cyan-500/30 text-xs">
-                <div className="flex items-center gap-2">
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 px-3 py-2 rounded-xl bg-[#091522] border border-cyan-500/30 text-xs">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-sm">{selectedServerInfo.flag}</span>
-                  <span className="font-bold text-white text-[12px]">{selectedServerInfo.name}</span>
-                  <span className="px-1.5 py-0.5 rounded bg-cyan-400/20 text-cyan-300 font-mono text-[10px] font-bold">
+                  <span className="font-bold text-white text-[11px] sm:text-[12px]">{selectedServerInfo.name}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-cyan-400/20 text-cyan-300 font-mono text-[9px] sm:text-[10px] font-bold">
                     {selectedServerInfo.code} GUILD SERVER
                   </span>
                 </div>
-                <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1 font-mono">
+                <span className="text-[9px] sm:text-[10px] text-emerald-400 font-semibold flex items-center gap-1 font-mono">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  GUILD ROUTING ACTIVE
+                  ROUTING ACTIVE
                 </span>
               </div>
             </div>
 
             {/* Clan / Guild ID input */}
             <div>
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Users className="h-3.5 w-3.5 text-slate-400" />
+              <label className="block text-[11px] sm:text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                 CLAN ID / GUILD ID
               </label>
               <input
@@ -311,16 +310,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
                 value={guildId}
                 onChange={(e) => setGuildId(e.target.value)}
                 placeholder="e.g. 123456789"
-                className="w-full rounded-xl bg-[#0e1015] text-white placeholder:text-slate-500 border border-slate-700/80 hover:border-slate-600 focus:border-emerald-500 px-4 py-3.5 text-sm font-mono font-medium focus:outline-none transition-colors"
+                className="w-full rounded-xl bg-[#0e1015] text-white placeholder:text-slate-500 border border-slate-700/80 hover:border-slate-600 focus:border-emerald-500 px-3.5 py-3 text-xs sm:text-sm font-mono font-medium focus:outline-none transition-colors"
               />
             </div>
           </div>
 
           {/* Cost Line matching screenshot */}
-          <div className="flex flex-wrap items-center justify-between text-xs text-slate-400 pt-1">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] sm:text-xs text-slate-400 pt-1">
+            <div className="flex items-center gap-1.5">
               <span className="text-slate-300 font-medium">Cost:</span>
-              <span className="font-bold text-white">1 Basic credit</span>
+              <span className="font-bold text-white">1 Credit / Squad</span>
               <span className="text-slate-500">•</span>
               <span className="font-semibold text-emerald-400">RS {CREDIT_RATE_RS}</span>
             </div>
@@ -330,10 +329,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
           </div>
 
           {/* Warning Banner matching Screenshot 2 */}
-          <div className="flex items-start gap-3 rounded-xl bg-amber-950/25 border border-amber-500/30 p-3.5 text-xs text-amber-300/90">
+          <div className="flex items-start gap-2.5 rounded-xl bg-amber-950/25 border border-amber-500/30 p-3 text-[11px] sm:text-xs text-amber-300/90 leading-relaxed break-words">
             <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
             <div className="leading-relaxed">
-              <span>Execution consumes 1 credit and dispatches automated bot squad to your selected Guild Server immediately. Ensure Guild ID belongs to the chosen server.</span>
+              <span>Execution consumes <strong>1 Credit per squad launch</strong> and dispatches automated bot squad to your selected Guild Server immediately. Ensure Guild ID belongs to the chosen server.</span>
             </div>
           </div>
 
@@ -341,17 +340,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#00f0ff] via-[#00e599] to-[#00f0ff] bg-[length:200%_auto] hover:bg-right text-slate-950 font-black py-4 text-sm sm:text-base tracking-wider uppercase transition-all duration-300 shadow-[0_0_25px_rgba(0,240,255,0.35)] hover:shadow-[0_0_35px_rgba(0,240,255,0.6)] disabled:opacity-60 cursor-pointer font-orbitron"
+            className="w-full flex items-center justify-center gap-2 rounded-xl sm:rounded-2xl bg-gradient-to-r from-[#00f0ff] via-[#00e599] to-[#00f0ff] bg-[length:200%_auto] hover:bg-right text-slate-950 font-black py-3.5 sm:py-4 px-3 text-xs sm:text-sm tracking-wide uppercase transition-all duration-300 shadow-[0_0_25px_rgba(0,240,255,0.35)] hover:shadow-[0_0_35px_rgba(0,240,255,0.6)] disabled:opacity-60 cursor-pointer font-orbitron text-center break-words leading-tight"
           >
             {loading ? (
               <>
-                <div className="h-5 w-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                <span>Launching Bot on {selectedServerInfo.flag} {selectedServerInfo.name} Guild Server...</span>
+                <div className="h-4 w-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin shrink-0" />
+                <span className="truncate">Launching Bot on {selectedServerInfo.flag} {selectedServerInfo.code}...</span>
               </>
             ) : (
               <>
-                <Zap className="h-5 w-5 fill-slate-950 stroke-slate-950" />
-                <span>Start Group on {selectedServerInfo.flag} {selectedServerInfo.code} ({selectedServerInfo.name} Guild Server)</span>
+                <Zap className="h-4 w-4 sm:h-5 sm:w-5 fill-slate-950 stroke-slate-950 shrink-0" />
+                <span className="line-clamp-2">Start Group on {selectedServerInfo.flag} {selectedServerInfo.code} ({selectedServerInfo.name} Guild Server)</span>
               </>
             )}
           </button>
@@ -360,22 +359,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
         {/* Feedback Message */}
         {launchResult && (
           <div
-            className={`mt-5 rounded-xl border p-4 text-xs ${
+            className={`mt-4 rounded-xl border p-3.5 text-[11px] sm:text-xs break-words ${
               launchResult.success
                 ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-200"
                 : "bg-rose-950/40 border-rose-500/40 text-rose-200"
             }`}
           >
-            <div className="flex items-start gap-2.5">
+            <div className="flex items-start gap-2">
               {launchResult.success ? (
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
               ) : (
                 <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
               )}
-              <div className="flex-1 space-y-1">
-                <div className="font-bold">{launchResult.message}</div>
+              <div className="flex-1 space-y-1 min-w-0">
+                <div className="font-bold break-words">{launchResult.message}</div>
                 {launchResult.details && (
-                  <pre className="mt-2 rounded-lg bg-black/50 p-2.5 text-[11px] font-mono text-slate-300 overflow-x-auto max-h-36">
+                  <pre className="mt-2 rounded-lg bg-black/50 p-2 text-[10px] font-mono text-slate-300 overflow-x-auto max-h-36">
                     {JSON.stringify(launchResult.details, null, 2)}
                   </pre>
                 )}

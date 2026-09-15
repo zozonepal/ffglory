@@ -30,12 +30,13 @@ interface AuthContextType {
   logout: () => Promise<void>;
   setUserRole: (newRole: UserRole) => Promise<void>;
   updateUserCredits: (newTotal: number) => Promise<void>;
+  deductUserCredits: (amount?: number) => Promise<number>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Super admin email from metadata
-const SUPER_ADMIN_EMAIL = "tiktokhorizon9@gmail.com";
+// Super admin email
+const SUPER_ADMIN_EMAIL = "deepsonpokhrel12@gmail.com";
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -54,13 +55,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+    // Safety fallback: Ensure loading is disabled within 1.5 seconds under any network condition
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 1500);
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      clearTimeout(safetyTimer);
       setCurrentUser(user);
 
       if (user) {
         const isSuperAdmin = user.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
 
-        // 1. Preload from local cache to eliminate race conditions
+        // 1. Preload from local cache to eliminate race conditions & instant display
         const localCached = getLocalData(`users/${user.uid}`, null);
         let profileState: UserProfile = localCached || {
           uid: user.uid,
@@ -75,30 +82,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           profileState.role = "admin";
         }
 
-        // Set state immediately so UI has user profile
+        // Set state immediately so UI renders instantaneously
         setUserProfile(profileState);
+        setLoading(false);
 
-        // 2. Resiliently fetch or initialize in RTDB
-        try {
-          const rtdbData = await resilientGet(`users/${user.uid}`, null);
-          if (rtdbData) {
-            profileState = {
-              uid: user.uid,
-              email: rtdbData.email || user.email || "",
-              username: rtdbData.username || user.displayName || user.email?.split("@")[0] || "User",
-              role: isSuperAdmin ? "admin" : (rtdbData.role || profileState.role || "user"),
-              credits: typeof rtdbData.credits === "number" ? rtdbData.credits : profileState.credits,
-              createdAt: rtdbData.createdAt || profileState.createdAt,
-            };
-            setUserProfile(profileState);
-          } else {
-            await resilientSet(`users/${user.uid}`, profileState);
-          }
-        } catch {
-          // resilientGet catches permission denied and uses local cache
+        // 2. Realtime reactive listener for credits and role
+        if (unsubscribeProfile) {
+          unsubscribeProfile();
         }
 
-        // 3. Realtime reactive listener for credits and role
         unsubscribeProfile = resilientOnValue(
           `users/${user.uid}`,
           (val) => {
@@ -115,25 +107,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           },
           profileState
         );
+
+        // 3. Asynchronously sync in background without blocking app render
+        resilientGet(`users/${user.uid}`, null)
+          .then((rtdbData) => {
+            if (rtdbData) {
+              setUserProfile({
+                uid: user.uid,
+                email: rtdbData.email || user.email || "",
+                username: rtdbData.username || user.displayName || user.email?.split("@")[0] || "User",
+                role: isSuperAdmin ? "admin" : (rtdbData.role || "user"),
+                credits: typeof rtdbData.credits === "number" ? rtdbData.credits : 0,
+                createdAt: rtdbData.createdAt || Date.now(),
+              });
+            } else {
+              resilientSet(`users/${user.uid}`, profileState).catch(() => {});
+            }
+          })
+          .catch(() => {});
       } else {
         setUserProfile(null);
         if (unsubscribeProfile) {
           unsubscribeProfile();
           unsubscribeProfile = null;
         }
+        setLoading(false);
       }
-
-      setLoading(false);
     });
 
     return () => {
+      clearTimeout(safetyTimer);
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
     };
   }, []);
 
   const signInWithEmail = async (email: string, pass: string) => {
-    await signInWithEmailAndPassword(auth, email.trim(), pass);
+    const cleanEmail = email.trim();
+    try {
+      await signInWithEmailAndPassword(auth, cleanEmail, pass);
+    } catch (err: any) {
+      // If super admin attempts login and account doesn't exist yet, auto-register
+      if (
+        cleanEmail.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() &&
+        (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential")
+      ) {
+        await signUpWithEmail(cleanEmail, pass, "Super Admin");
+        return;
+      }
+      throw err;
+    }
   };
 
   const signUpWithEmail = async (email: string, pass: string, username?: string) => {
@@ -189,6 +212,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUserProfile((prev) => (prev ? { ...prev, credits: newTotal } : null));
   };
 
+  const deductUserCredits = async (amount: number = 1): Promise<number> => {
+    if (!currentUser) return 0;
+    const currentData = await resilientGet(`users/${currentUser.uid}`, null);
+    const currentCredits =
+      typeof currentData?.credits === "number"
+        ? currentData.credits
+        : userProfile?.credits ?? 0;
+    const newTotal = Math.max(0, currentCredits - amount);
+    await resilientUpdate(`users/${currentUser.uid}`, { credits: newTotal });
+    setUserProfile((prev) => (prev ? { ...prev, credits: newTotal } : null));
+    return newTotal;
+  };
+
   const isAdmin = Boolean(
     userProfile?.role === "admin" ||
     currentUser?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()
@@ -208,6 +244,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         setUserRole,
         updateUserCredits,
+        deductUserCredits,
       }}
     >
       {children}
