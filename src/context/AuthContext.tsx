@@ -144,19 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signInWithEmail = async (email: string, pass: string) => {
     const cleanEmail = email.trim();
-    try {
-      await signInWithEmailAndPassword(auth, cleanEmail, pass);
-    } catch (err: any) {
-      // If super admin attempts login and account doesn't exist yet, auto-register
-      if (
-        cleanEmail.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() &&
-        (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential")
-      ) {
-        await signUpWithEmail(cleanEmail, pass, "Super Admin");
-        return;
-      }
-      throw err;
-    }
+    await signInWithEmailAndPassword(auth, cleanEmail, pass);
   };
 
   const signUpWithEmail = async (email: string, pass: string, username?: string) => {
