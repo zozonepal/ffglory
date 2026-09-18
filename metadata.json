@@ -1,0 +1,6 @@
+{
+  "name": "ffglorynepal",
+  "description": "ffglorynepal portal with bot launch controls, credit balance management, instant Fonepay deposits, and clan glory farming.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
