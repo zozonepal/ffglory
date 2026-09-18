@@ -2,8 +2,15 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+let __filename = "";
+let __dirname = "";
+try {
+  __filename = fileURLToPath(import.meta.url);
+  __dirname = path.dirname(__filename);
+} catch (e) {
+  // Safe fallback if processed as CommonJS or under specific Vercel bundler configurations
+  __dirname = process.cwd();
+}
 
 const app = express();
 const PORT = 3000;
