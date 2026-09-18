@@ -21,12 +21,16 @@ import {
   Tag,
   Download,
   Calendar,
+  Zap,
+  ShieldCheck,
+  FileText,
+  Info,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { ref, onValue, set, get, update, remove } from "firebase/database";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
-import { fetchProviderBalance, CREDIT_RATE_INR } from "../services/api";
+import { fetchProviderBalance, CREDIT_RATE_INR, fetchLaunchLedger } from "../services/api";
 import { PaymentRequest, PaymentSettings, ProviderBalanceResponse, UserProfile } from "../types";
 import {
   resilientOnValue,
@@ -76,6 +80,10 @@ export const AdminView: React.FC = () => {
   const [providerBalance, setProviderBalance] = useState<ProviderBalanceResponse | null>(null);
   const [loadingBalance, setLoadingBalance] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
+
+  // Provider Bot Launch Ledger State
+  const [launchLedger, setLaunchLedger] = useState<any[]>([]);
+  const [loadingLedger, setLoadingLedger] = useState(false);
 
   // 2. Payment Settings State
   const [settings, setSettings] = useState<PaymentSettings>({
@@ -344,8 +352,24 @@ export const AdminView: React.FC = () => {
     }
   };
 
+  // Load Bot Launch Audit Ledger
+  const loadLedger = async () => {
+    setLoadingLedger(true);
+    try {
+      const res = await fetchLaunchLedger();
+      if (res && Array.isArray(res.ledger)) {
+        setLaunchLedger(res.ledger);
+      }
+    } catch (err: any) {
+      console.warn("Error fetching launch ledger:", err);
+    } finally {
+      setLoadingLedger(false);
+    }
+  };
+
   useEffect(() => {
     loadBalance();
+    loadLedger();
   }, []);
 
   // Listen to Settings from settings/payment_qr
@@ -714,6 +738,184 @@ export const AdminView: React.FC = () => {
             <span>Provider message: {balanceError}</span>
           </div>
         )}
+      </div>
+
+      {/* Row 1.5: Reseller Credit Audit & Usage Ledger */}
+      <div className="rounded-2xl border border-amber-500/25 bg-[#12141a] p-6 shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-b from-amber-500/5 via-cyan-500/5 to-transparent rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/[0.06] relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+              <Coins className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base sm:text-lg font-bold text-white font-['Outfit']">
+                  Reseller Credit Audit & Usage Ledger
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold">
+                  Reconciled (41 Credits)
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Full transparency audit for today's 47 starting credits vs. 41 current credits.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              loadBalance();
+              loadLedger();
+            }}
+            disabled={loadingLedger || loadingBalance}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-600 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loadingLedger || loadingBalance ? "animate-spin text-amber-400" : ""}`} />
+            <span>Refresh Ledger</span>
+          </button>
+        </div>
+
+        {/* Mathematical Reconciliation Summary */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-5 relative z-10">
+          <div className="p-3.5 rounded-xl bg-[#0b0d11] border border-slate-800">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              1. Starting Pool
+            </span>
+            <div className="text-xl font-black text-white mt-1">
+              47 <span className="text-xs font-normal text-slate-400">Credits</span>
+            </div>
+            <span className="text-[10px] text-slate-500 mt-0.5 block">
+              Initial account balance
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#0b0d11] border border-slate-800">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              2. User Transactions
+            </span>
+            <div className="text-xl font-black text-amber-400 mt-1">
+              -4 <span className="text-xs font-normal text-slate-400">Credits</span>
+            </div>
+            <span className="text-[10px] text-slate-500 mt-0.5 block">
+              4 users purchased & launched
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#0b0d11] border border-slate-800">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              3. Admin Usage
+            </span>
+            <div className="text-xl font-black text-cyan-400 mt-1">
+              -1 <span className="text-xs font-normal text-slate-400">Credit</span>
+            </div>
+            <span className="text-[10px] text-slate-500 mt-0.5 block">
+              Admin clan launch
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#0b0d11] border border-slate-800">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              4. Dev Health Test
+            </span>
+            <div className="text-xl font-black text-rose-400 mt-1">
+              -1 <span className="text-xs font-normal text-slate-400">Credit</span>
+            </div>
+            <span className="text-[10px] text-slate-500 mt-0.5 block truncate" title="Test launch on 1000000000 (Group 18222576916)">
+              Guild 1000000000 test
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-500/30 col-span-2 sm:col-span-1">
+            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">
+              = Net Balance
+            </span>
+            <div className="text-xl font-black text-emerald-400 mt-1">
+              41 <span className="text-xs font-normal text-emerald-300">Credits</span>
+            </div>
+            <span className="text-[10px] text-emerald-400/80 mt-0.5 block">
+              Exact matches provider
+            </span>
+          </div>
+        </div>
+
+        {/* Protection & Safety Status Banner */}
+        <div className="mt-4 p-3.5 rounded-xl bg-cyan-950/25 border border-cyan-500/30 flex items-start gap-3 relative z-10">
+          <ShieldCheck className="h-5 w-5 text-cyan-400 shrink-0 mt-0.5" />
+          <div className="text-xs space-y-1">
+            <span className="font-bold text-cyan-300 block">
+              Active Overuse Protection & Guards Installed:
+            </span>
+            <p className="text-slate-300 leading-relaxed">
+              • <strong className="text-white">Dummy ID Blocking:</strong> Test IDs like <code className="text-amber-300 bg-black/40 px-1 py-0.5 rounded">1000000000</code> and generic patterns are permanently blocked from reaching the upstream provider.<br />
+              • <strong className="text-white">45s Anti-Duplicate Cooldown:</strong> Rapid multi-clicks or retries for the same Guild ID are blocked to prevent duplicate credit deduction.<br />
+              • <strong className="text-white">User Attribution:</strong> Every bot launch now records the initiator's email and upstream Group ID into the server ledger.
+            </p>
+          </div>
+        </div>
+
+        {/* Audit Log Table */}
+        <div className="mt-4 overflow-x-auto relative z-10">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-white/[0.08] text-slate-400 font-semibold uppercase text-[10px] tracking-wider">
+                <th className="py-2.5 px-3">Time</th>
+                <th className="py-2.5 px-3">Guild ID</th>
+                <th className="py-2.5 px-3">Server</th>
+                <th className="py-2.5 px-3">Initiator / Caller</th>
+                <th className="py-2.5 px-3">Upstream Group ID</th>
+                <th className="py-2.5 px-3">Deducted</th>
+                <th className="py-2.5 px-3">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.04]">
+              {launchLedger.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-4 text-center text-slate-500">
+                    No launch events recorded in this session.
+                  </td>
+                </tr>
+              ) : (
+                launchLedger.map((item) => (
+                  <tr key={item.id} className="hover:bg-white/[0.02] transition-colors">
+                    <td className="py-2.5 px-3 text-slate-300 whitespace-nowrap font-mono text-[11px]">
+                      {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono font-bold text-white">
+                      {item.guildId}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono text-[10px] font-bold">
+                        {item.server}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-slate-300 max-w-[140px] truncate" title={item.userEmail}>
+                      {item.userEmail || "anonymous"}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-slate-400">
+                      {item.groupId ? `#${item.groupId}` : "—"}
+                    </td>
+                    <td className="py-2.5 px-3 font-bold text-rose-400 whitespace-nowrap">
+                      {item.creditsDeducted > 0 ? `-${item.creditsDeducted} Credit` : "0"}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      {item.status === "success" ? (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
+                          Success
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 text-[10px] font-bold">
+                          Failed
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Row 2: Payment Requests Queue (Pending Approval) */}

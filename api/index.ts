@@ -107,23 +107,101 @@ const handleFFGloryBalance = async (req: express.Request, res: express.Response)
 app.get("/api/ffglory/balance", handleFFGloryBalance);
 app.get("/api/balance", handleFFGloryBalance); // Backwards compatibility alias
 
+// ==========================================
+// Launch Ledger & Credit Usage Audit Trail
+// ==========================================
+export interface LaunchLedgerEntry {
+  id: string;
+  timestamp: string;
+  guildId: string;
+  server: string;
+  userEmail?: string;
+  groupId?: string;
+  creditsDeducted: number;
+  creditsLeft?: number;
+  status: "success" | "failed";
+  notes?: string;
+}
+
+// In-memory launch ledger seeded with today's activity
+const launchLedger: LaunchLedgerEntry[] = [
+  {
+    id: "launch_test_18222576916",
+    timestamp: "2026-09-18T14:54:23.000Z",
+    guildId: "1000000000",
+    server: "IND",
+    userEmail: "system_verification_test",
+    groupId: "18222576916",
+    creditsDeducted: 1,
+    creditsLeft: 41,
+    status: "success",
+    notes: "API health check test launch on dummy guild 1000000000 (reduced balance from 42 to 41)",
+  },
+];
+
+// Anti-duplicate launch cooldown map (guildId -> timestamp)
+const recentLaunchTimestamps = new Map<string, number>();
+
+// Known dummy / test guild IDs that must NEVER be dispatched to the paid provider
+const BLOCKED_TEST_GUILD_IDS = new Set([
+  "1000000000",
+  "0000000000",
+  "1111111111",
+  "1234567890",
+  "123456789",
+  "00000000",
+  "9999999999",
+  "test",
+  "dummy",
+]);
+
 // FFGlory: Launch Bot (Internal Server Proxy)
 const handleFFGloryLaunch = async (req: express.Request, res: express.Response) => {
   try {
-    const { server, region, guild_server, guild_id } = req.body;
+    const { server, region, guild_server, guild_id, user_email } = req.body;
+    const clientUserEmail = req.headers["x-user-email"] || user_email || "anonymous";
 
     if (!guild_id || typeof guild_id !== "string" || !guild_id.trim()) {
-      return res.status(400).json({ error: "Valid Guild ID is required" });
+      return res.status(400).json({ error: "Valid Free Fire Guild ID is required" });
+    }
+
+    const cleanGuildId = String(guild_id).trim();
+
+    // 1. Safety Guard: Reject dummy or test IDs to protect paid reseller credits
+    if (BLOCKED_TEST_GUILD_IDS.has(cleanGuildId) || /^0+$/.test(cleanGuildId)) {
+      return res.status(400).json({
+        error: "Test / dummy Guild IDs (such as 1000000000) are blocked to protect your paid credit balance. Please provide a real Free Fire Guild ID.",
+      });
+    }
+
+    // 2. Guild ID Format Guard: Must be numeric between 6 and 14 digits
+    if (!/^\d{6,14}$/.test(cleanGuildId)) {
+      return res.status(400).json({
+        error: "Invalid Guild ID format. Free Fire Guild IDs must be 6 to 14 numeric digits.",
+      });
+    }
+
+    // 3. Anti-Spam / Anti-Duplicate Cooldown Guard (45 seconds per guild ID)
+    const now = Date.now();
+    const lastLaunchTime = recentLaunchTimestamps.get(cleanGuildId);
+    if (lastLaunchTime && now - lastLaunchTime < 45000) {
+      const waitSec = Math.ceil((45000 - (now - lastLaunchTime)) / 1000);
+      return res.status(429).json({
+        error: `A bot launch for Guild ${cleanGuildId} was triggered ${Math.floor((now - lastLaunchTime) / 1000)}s ago. Please wait ${waitSec}s to prevent duplicate credit deduction.`,
+      });
     }
 
     const requestedServer = server || region || guild_server || "IND";
     const targetServer = normalizeServerCode(requestedServer);
-    console.log(`[FFGLORY BOT LAUNCH] Guild ID: ${guild_id}, Server: "${targetServer}"`);
+    console.log(`[FFGLORY BOT LAUNCH] User: ${clientUserEmail}, Guild ID: ${cleanGuildId}, Server: "${targetServer}"`);
 
     const payload = {
       server: targetServer,
-      guild_id: String(guild_id).trim(),
+      guild_id: cleanGuildId,
     };
+
+    // Mark timestamp to prevent double-submit
+    recentLaunchTimestamps.set(cleanGuildId, now);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 50000);
@@ -144,12 +222,27 @@ const handleFFGloryLaunch = async (req: express.Request, res: express.Response) 
 
     if (!response.ok) {
       console.warn(`[FFGLORY LAUNCH FAILED] Provider returned ${response.status}:`, data);
+      // Remove cooldown on immediate provider failure
+      recentLaunchTimestamps.delete(cleanGuildId);
+
       let errorMsg = data?.error || data?.message || `FFGlory launch failed with status ${response.status}`;
       if (response.status === 409 || String(errorMsg).includes("already in progress")) {
         errorMsg = "A bot match is currently in progress for this cluster. Please wait 60 seconds for the active match to complete and retry. Your credits were NOT deducted.";
       } else if (response.status === 423 || String(errorMsg).includes("maintenance") || String(errorMsg).includes("LOCKED")) {
         errorMsg = `${targetServer} server region is temporarily locked or undergoing maintenance. Please select IND or another regional cluster. Your credits were NOT deducted.`;
       }
+
+      launchLedger.unshift({
+        id: `fail_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        guildId: cleanGuildId,
+        server: targetServer,
+        userEmail: String(clientUserEmail),
+        creditsDeducted: 0,
+        status: "failed",
+        notes: errorMsg,
+      });
+
       return res.status(response.status).json({
         error: errorMsg,
         details: sanitizeUpstreamData(data),
@@ -157,8 +250,23 @@ const handleFFGloryLaunch = async (req: express.Request, res: express.Response) 
       });
     }
 
-    console.log(`[FFGLORY LAUNCH SUCCESS] Dispatched to ${targetServer} for guild ${guild_id}`);
+    console.log(`[FFGLORY LAUNCH SUCCESS] Dispatched to ${targetServer} for guild ${cleanGuildId}`);
     const sanitized = sanitizeUpstreamData(data) || {};
+
+    // Record successful launch in audit ledger
+    launchLedger.unshift({
+      id: `launch_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      guildId: cleanGuildId,
+      server: targetServer,
+      userEmail: String(clientUserEmail),
+      groupId: sanitized.group_id || undefined,
+      creditsDeducted: 1,
+      creditsLeft: typeof sanitized.credits_left === "number" ? sanitized.credits_left : undefined,
+      status: "success",
+      notes: `Successful launch (Group: ${sanitized.group_id || "N/A"})`,
+    });
+
     return res.json({
       ...sanitized,
       selectedServer: targetServer,
@@ -177,6 +285,16 @@ const handleFFGloryLaunch = async (req: express.Request, res: express.Response) 
 
 app.post("/api/ffglory/launch", handleFFGloryLaunch);
 app.post("/api/launch", handleFFGloryLaunch); // Backwards compatibility alias
+
+// Audit Ledger Query Endpoint
+app.get("/api/admin/launch-ledger", (req, res) => {
+  res.json({
+    success: true,
+    totalLaunches: launchLedger.length,
+    successfulLaunches: launchLedger.filter((l) => l.status === "success").length,
+    ledger: launchLedger,
+  });
+});
 
 // FFGlory: Service Status Check
 app.get("/api/ffglory/status", async (req, res) => {

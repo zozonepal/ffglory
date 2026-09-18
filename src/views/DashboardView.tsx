@@ -154,8 +154,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
     const targetGuildId = guildId.trim();
 
     try {
-      // 1. Call provider endpoint /launch strictly with user-selected guild server
-      const response = await launchBotAction(targetGuildId, serverRegion);
+      // 1. Call provider endpoint /launch strictly with user-selected guild server and user attribution
+      const response = await launchBotAction(targetGuildId, serverRegion, currentUser.email || currentUser.uid);
 
       // 2. Upon HTTP 200 success, deduct EXACTLY 1 credit from user balance (1 Squad = 1 Credit)
       const remainingCredits = await deductUserCredits(1);

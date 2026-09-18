@@ -123,31 +123,38 @@ export function normalizeServerCode(code?: string): string {
  * Trigger bot action via internal FFGlory server proxy
  * Prevents provider credentials and endpoint URLs from leaking in browser DevTools
  */
-export async function launchBotAction(guildId: string, server: string = "IND"): Promise<any> {
+export async function launchBotAction(
+  guildId: string,
+  server: string = "IND",
+  userEmail?: string
+): Promise<any> {
   const targetServer = normalizeServerCode(server);
   const payload = {
     server: targetServer,
     region: targetServer,
     guild_id: guildId.trim(),
+    user_email: userEmail,
   };
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (userEmail) {
+    headers["x-user-email"] = userEmail;
+  }
 
   try {
     let res = await fetch("/api/ffglory/launch", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers,
       body: JSON.stringify(payload),
     });
 
     if (res.status === 404) {
       res = await fetch("/api/launch", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
+        headers,
         body: JSON.stringify(payload),
       });
     }
@@ -169,6 +176,36 @@ export async function launchBotAction(guildId: string, server: string = "IND"): 
   } catch (err: any) {
     const msg = extractErrorMessage(err, "Failed to launch bot match via server.");
     throw new Error(msg);
+  }
+}
+
+/**
+ * Fetch server-side bot launch audit ledger
+ */
+export async function fetchLaunchLedger(): Promise<{
+  success: boolean;
+  totalLaunches: number;
+  successfulLaunches: number;
+  ledger: Array<{
+    id: string;
+    timestamp: string;
+    guildId: string;
+    server: string;
+    userEmail?: string;
+    groupId?: string;
+    creditsDeducted: number;
+    creditsLeft?: number;
+    status: "success" | "failed";
+    notes?: string;
+  }>;
+}> {
+  try {
+    const res = await fetch("/api/admin/launch-ledger");
+    if (!res.ok) throw new Error(`Status ${res.status}`);
+    return await res.json();
+  } catch (err: any) {
+    console.warn("Failed to fetch launch ledger:", err);
+    return { success: false, totalLaunches: 0, successfulLaunches: 0, ledger: [] };
   }
 }
 
