@@ -12,6 +12,12 @@ import {
   ShieldCheck,
   Clock,
   Layers,
+  Settings,
+  ChevronUp,
+  ChevronDown,
+  Copy,
+  Edit3,
+  Sparkles,
 } from "lucide-react";
 import { ref, push, set, onValue, get } from "firebase/database";
 import { db } from "../firebase";
@@ -53,6 +59,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
   };
 
   const [insufficientModal, setInsufficientModal] = useState(false);
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [customGuildName, setCustomGuildName] = useState("w00000000ss3");
+  const [customGlory, setCustomGlory] = useState("429498 / 4200");
+  const [customLevel, setCustomLevel] = useState("1");
+  const [isCardEditOpen, setIsCardEditOpen] = useState(false);
   const [recentLaunches, setRecentLaunches] = useState<LaunchLog[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [lastRefreshed, setLastRefreshed] = useState<string>(
@@ -106,7 +117,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
     return () => unsubscribe();
   }, [currentUser]);
 
-  const handleLaunch = async (e: React.FormEvent) => {
+  const handleLaunchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser || loading) return;
 
@@ -124,12 +135,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
       return;
     }
 
+    // Set a realistic prefilled name if they haven't customized it yet
+    const cleanId = guildId.trim();
+    if (customGuildName === "w00000000ss3" || !customGuildName) {
+      setCustomGuildName("w" + cleanId.substring(0, Math.min(3, cleanId.length)) + "ooooo" + cleanId.substring(Math.max(0, cleanId.length - 3)));
+    }
+
+    setConfirmModalOpen(true);
+  };
+
+  const executeLaunch = async () => {
+    if (!currentUser || loading) return;
+    setConfirmModalOpen(false);
     setLoading(true);
     setLaunchResult(null);
 
+    const targetGuildId = guildId.trim();
+
     try {
       // 1. Call provider endpoint /launch strictly with user-selected guild server
-      const response = await launchBotAction(guildId.trim(), serverRegion);
+      const response = await launchBotAction(targetGuildId, serverRegion);
 
       // 2. Upon HTTP 200 success, deduct EXACTLY 1 credit from user balance (1 Squad = 1 Credit)
       const remainingCredits = await deductUserCredits(1);
@@ -141,7 +166,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
       // 3. Log transaction history resiliently (users/{uid}/history)
       const logEntry: Omit<LaunchLog, "id"> = {
         server: confirmedServerCode,
-        guild_id: guildId.trim(),
+        guild_id: targetGuildId,
         status: "success",
         creditsDeducted: 1,
         timestamp: Date.now(),
@@ -167,7 +192,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
       try {
         await resilientPush(`users/${currentUser.uid}/history`, {
           server: serverRegion,
-          guild_id: guildId.trim(),
+          guild_id: targetGuildId,
           status: "failed",
           creditsDeducted: 0,
           timestamp: Date.now(),
@@ -253,7 +278,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
         </div>
 
         {/* Launch Form */}
-        <form onSubmit={handleLaunch} className="space-y-4 sm:space-y-5 relative z-10">
+        <form onSubmit={handleLaunchSubmit} className="space-y-4 sm:space-y-5 relative z-10">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Guild Server / Region Selector */}
             <div>
@@ -546,6 +571,275 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
                 Deposit Funds Now
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Launch Modal with Free Fire Custom Guild Card & Settings Mockup */}
+      {confirmModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl sm:rounded-3xl border border-slate-800 bg-[#0c0d12] p-4 sm:p-7 shadow-[0_0_50px_rgba(0,0,0,0.8)] relative animate-in fade-in zoom-in-95 my-8">
+            
+            {/* Header */}
+            <div className="flex items-center gap-2 mb-6 border-b border-slate-800/60 pb-4">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/10 border border-emerald-500/40 text-emerald-400">
+                <CheckCircle2 className="h-4.5 w-4.5" />
+              </div>
+              <h3 className="text-base sm:text-lg font-black text-white font-orbitron uppercase tracking-wider">
+                Confirm Launch
+              </h3>
+            </div>
+
+            {/* Grid of Two Columns (Configure Card vs Allow Bots) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+              
+              {/* Column 1: Step 1: Configure */}
+              <div className="space-y-2">
+                <div className="text-[10px] sm:text-xs font-bold text-slate-400 tracking-wider flex items-center gap-1 uppercase">
+                  <span className="text-emerald-400">Step 1:</span> Configure
+                </div>
+                
+                {/* Simulated high-fidelity Free Fire Card (Screenshot 1 & 2) */}
+                <div className="relative rounded-2xl overflow-hidden bg-gradient-to-b from-[#1b1e2c] via-[#0d0e14] to-[#0a0b0e] border border-slate-700/80 p-4 min-h-[280px] flex flex-col justify-between shadow-lg">
+                  {/* Hexagon Settings cog + orange alert dot at top left (Screenshot 1 & 2) */}
+                  <div className="absolute top-3.5 left-3.5 flex items-center justify-center">
+                    <div className="relative flex items-center justify-center h-8 w-8 bg-[#1e2338] border border-slate-600/70 rounded-lg shadow-inner">
+                      <Settings className="h-4 w-4 text-slate-300 animate-spin" style={{ animationDuration: '8s' }} />
+                      {/* Orange alert dot pointing at settings gear */}
+                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-amber-500 rounded-full border border-[#0d0e14] animate-pulse" />
+                    </div>
+                  </div>
+
+                  {/* Level Badge ribbon (Screenshot 1 & 2) - Top right or bottom center */}
+                  <div className="absolute top-3.5 right-3.5 bg-emerald-500/20 border border-emerald-400/40 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-mono font-bold flex items-center gap-0.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    LIVE
+                  </div>
+
+                  {/* Center: Wolf / Fox Emblem in Vector SVG */}
+                  <div className="my-auto pt-6 flex flex-col items-center justify-center text-center">
+                    <div className="relative w-24 h-24 mb-3">
+                      {/* Shield background wrapper */}
+                      <svg viewBox="0 0 100 100" className="w-full h-full text-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.3)]">
+                        {/* Shield border */}
+                        <polygon points="50,5 92,25 80,75 50,95 20,75 8,25" fill="#0c0e18" stroke="#3b82f6" strokeWidth="3" />
+                        {/* Wolf head lines */}
+                        <path d="M50,20 L35,42 L42,44 L32,55 L42,56 L35,70 L50,85 L65,70 L58,56 L68,55 L58,44 L65,42 Z" fill="#1e2235" stroke="#60a5fa" strokeWidth="2" strokeLinejoin="miter" />
+                        {/* Eyes */}
+                        <polygon points="43,48 47,49 45,51" fill="#bef264" />
+                        <polygon points="57,48 53,49 55,51" fill="#bef264" />
+                        {/* Nose/mouth details */}
+                        <path d="M50,68 L48,72 L52,72 Z" fill="#1d4ed8" />
+                        <path d="M40,30 L45,35 M60,30 L55,35" stroke="#3b82f6" strokeWidth="1.5" />
+                      </svg>
+                    </div>
+
+                    {/* Guild/Clan Name (Screenshot 2: w00000000ss3) */}
+                    <div className="text-white font-black text-sm sm:text-base tracking-wide font-mono uppercase truncate max-w-[180px]">
+                      {customGuildName || "w00000000ss3"}
+                    </div>
+
+                    {/* Guild ID (Screenshot 2: GUILD ID 3047718301) */}
+                    <div className="text-[10px] sm:text-[11px] text-slate-400/90 font-mono flex items-center gap-1 mt-1">
+                      <span>GUILD ID</span>
+                      <span className="text-slate-200 font-bold tracking-wider">{guildId}</span>
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(guildId);
+                        }}
+                        className="p-1 hover:bg-slate-800 rounded transition-colors text-cyan-400 cursor-pointer"
+                        title="Copy Guild ID"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Bottom details of the card */}
+                  <div className="border-t border-slate-800/80 pt-2.5 mt-2 flex flex-col items-center">
+                    {/* Glory bar: e.g. 429498 / 4200 (Screenshot 1 & 2) */}
+                    <div className="w-full">
+                      <div className="flex justify-between items-center text-[9px] font-mono text-amber-400 font-bold mb-1">
+                        <span className="flex items-center gap-0.5">
+                          <Sparkles className="h-2.5 w-2.5 text-amber-400 animate-pulse" />
+                          GLORY
+                        </span>
+                        <span>{customGlory}</span>
+                      </div>
+                      <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800 p-[1px]">
+                        <div className="h-full bg-gradient-to-r from-amber-500 to-yellow-300 rounded-full" style={{ width: "85%" }} />
+                      </div>
+                    </div>
+
+                    {/* Level Badge ribbon (Screenshot 2: Lv.1) */}
+                    <div className="mt-2 text-white font-mono text-xs font-black tracking-wider flex items-center gap-1 bg-[#151929] px-3 py-0.5 rounded-full border border-slate-700/60 shadow-sm">
+                      <span className="text-amber-400 font-bold">Lv.</span> {customLevel}
+                      <ChevronUp className="h-3.5 w-3.5 text-emerald-400 animate-bounce" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Column 2: Step 2: Allow Bots (Mocking Screenshot 2) */}
+              <div className="space-y-2">
+                <div className="text-[10px] sm:text-xs font-bold text-slate-400 tracking-wider flex items-center gap-1 uppercase">
+                  <span className="text-emerald-400">Step 2:</span> Allow Bots
+                </div>
+
+                <div className="rounded-2xl bg-gradient-to-b from-[#10121a] to-[#07080b] border border-slate-800 p-4 min-h-[280px] flex flex-col justify-between">
+                  <div>
+                    {/* Game-like Title Header (Screenshot 2: I APPROVAL METHOD) */}
+                    <div className="border-b border-slate-800 pb-2 mb-3">
+                      <div className="text-[10px] font-black text-slate-400 font-mono tracking-wider flex items-center gap-1.5 uppercase">
+                        <div className="h-3 w-1 bg-amber-500" />
+                        <span>I Approval Method</span>
+                      </div>
+                    </div>
+
+                    {/* Simulation list */}
+                    <div className="space-y-3 font-mono text-[11px]">
+                      
+                      {/* Auto Approval row */}
+                      <div className="flex items-center justify-between py-1 px-2 rounded bg-slate-900/40 border border-slate-800/40">
+                        <span className="text-slate-300 font-semibold">AUTO APPROVAL</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] px-1 py-0.5 rounded bg-slate-800 text-slate-500 font-bold">OFF</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-extrabold border border-emerald-500/30">ON</span>
+                        </div>
+                      </div>
+
+                      {/* LV row */}
+                      <div className="flex items-center justify-between py-1 px-2 rounded bg-slate-900/20">
+                        <span className="text-slate-400">LV.</span>
+                        <span className="text-slate-200 font-bold bg-slate-800/80 px-1.5 py-0.5 rounded text-[10px]">DEFAULT</span>
+                      </div>
+
+                      {/* BR Ranked row */}
+                      <div className="flex items-center justify-between py-1 px-2 rounded bg-slate-900/20">
+                        <span className="text-slate-400">BR-RANKED</span>
+                        <span className="text-slate-200 font-bold bg-slate-800/80 px-1.5 py-0.5 rounded text-[10px]">DEFAULT</span>
+                      </div>
+
+                      {/* CS Ranked row */}
+                      <div className="flex items-center justify-between py-1 px-2 rounded bg-slate-900/20">
+                        <span className="text-slate-400">CS-RANKED</span>
+                        <span className="text-slate-200 font-bold bg-slate-800/80 px-1.5 py-0.5 rounded text-[10px]">DEFAULT</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Visual hint indicator */}
+                  <div className="mt-4 p-2.5 rounded-xl bg-cyan-950/15 border border-cyan-500/10 text-[10px] text-cyan-400/90 leading-relaxed font-mono">
+                    <div className="font-bold flex items-center gap-1 mb-0.5">
+                      <ShieldCheck className="h-3 w-3 text-cyan-400" />
+                      <span>CLAN PROTECTION ACTIVE</span>
+                    </div>
+                    Bot automatic login is allowed and ready to bypass security limits instantly.
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Customization Toggle Panel for screenshots */}
+            <div className="mb-6 rounded-xl border border-slate-800/80 bg-slate-950/50 p-3 text-xs">
+              <button 
+                type="button"
+                onClick={() => setIsCardEditOpen(!isCardEditOpen)}
+                className="w-full flex items-center justify-between text-slate-300 font-bold hover:text-white transition-colors cursor-pointer"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Edit3 className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>Customize Guild Card Details for Screenshots</span>
+                </span>
+                <span className="text-slate-500 font-mono text-[10px]">
+                  {isCardEditOpen ? "Hide Options ▲" : "Show Options ▼"}
+                </span>
+              </button>
+
+              {isCardEditOpen && (
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-800/60 animate-in fade-in-50 duration-200">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1">GUILD NAME</label>
+                    <input 
+                      type="text"
+                      value={customGuildName}
+                      onChange={(e) => setCustomGuildName(e.target.value)}
+                      placeholder="e.g. w00000000ss3"
+                      className="w-full bg-[#0a0b0e] text-white border border-slate-800 hover:border-slate-700 focus:border-cyan-400 rounded p-1.5 text-xs font-mono focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1">GUILD GLORY</label>
+                    <input 
+                      type="text"
+                      value={customGlory}
+                      onChange={(e) => setCustomGlory(e.target.value)}
+                      placeholder="e.g. 429498 / 4200"
+                      className="w-full bg-[#0a0b0e] text-white border border-slate-800 hover:border-slate-700 focus:border-cyan-400 rounded p-1.5 text-xs font-mono focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1">GUILD LEVEL</label>
+                    <input 
+                      type="text"
+                      value={customLevel}
+                      onChange={(e) => setCustomLevel(e.target.value)}
+                      placeholder="e.g. 1"
+                      className="w-full bg-[#0a0b0e] text-white border border-slate-800 hover:border-slate-700 focus:border-cyan-400 rounded p-1.5 text-xs font-mono focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Subtitle check */}
+            <p className="text-center text-sm font-semibold text-slate-300 mb-5 tracking-tight font-['Outfit']">
+              Are you sure you want to launch a new group?
+            </p>
+
+            {/* Details Summary grid matching Screenshot 1 */}
+            <div className="rounded-xl bg-slate-950 border border-slate-900 px-4 py-3 text-xs sm:text-sm font-medium space-y-2 mb-6">
+              <div className="flex justify-between items-center text-slate-400 py-1 border-b border-slate-900/40">
+                <span>Region:</span>
+                <span className="font-bold text-white flex items-center gap-1">
+                  <span>{selectedServerInfo.flag}</span>
+                  <span>{selectedServerInfo.name}</span>
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400 py-1 border-b border-slate-900/40">
+                <span>Clan ID:</span>
+                <span className="font-mono font-bold text-white tracking-wider">{guildId}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400 py-1">
+                <span>Cost:</span>
+                <span className="font-bold text-emerald-400 flex items-center gap-1">
+                  <span>1 Credit</span>
+                  <span className="text-slate-600 font-normal">•</span>
+                  <span className="text-slate-300 text-xs">RS {CREDIT_RATE_RS}</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <button
+                type="button"
+                onClick={() => setConfirmModalOpen(false)}
+                className="flex-1 py-3 rounded-xl bg-slate-900/80 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-xs sm:text-sm font-bold text-slate-300 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeLaunch}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black text-xs sm:text-sm tracking-wide uppercase shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all cursor-pointer font-orbitron"
+              >
+                Proceed
+              </button>
+            </div>
+            
           </div>
         </div>
       )}

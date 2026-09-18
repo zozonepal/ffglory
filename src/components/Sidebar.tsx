@@ -97,19 +97,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
             Support Helpdesk
           </div>
           <p className="text-[11px] text-slate-500 mb-3">
-            Contact ffglorynepal staff on WhatsApp or Telegram for immediate top-up assistance.
+            Contact ffglorynepal staff on TikTok or Telegram for immediate top-up assistance.
           </p>
           <div className="grid grid-cols-2 gap-2">
             <a
-              href="https://wa.me/?text=Hello%20ffglorynepal%20I%20need%20credits"
+              href="https://vt.tiktok.com/ZSqtQU5PH/"
               target="_blank"
               rel="noreferrer"
-              className="text-center py-2 rounded-xl bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/60 text-[11px] font-bold transition-colors"
+              className="text-center py-2 rounded-xl bg-pink-950/60 border border-pink-500/30 text-pink-400 hover:bg-pink-900/60 text-[11px] font-bold transition-colors"
             >
-              WhatsApp
+              TikTok
             </a>
             <a
-              href="https://t.me/"
+              href="https://t.me/ffglorynepal"
               target="_blank"
               rel="noreferrer"
               className="text-center py-2 rounded-xl bg-sky-950/60 border border-sky-500/30 text-sky-400 hover:bg-sky-900/60 text-[11px] font-bold transition-colors"
