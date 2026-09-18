@@ -148,13 +148,12 @@ export async function launchBotAction(guildId: string, server: string = "IND"): 
 }
 
 /**
- * Generate Fonepay QR Code via internal server proxy with direct fallback support
+ * Generate Fonepay QR Code strictly via internal server proxy
  */
 export async function createFonepayQr(amount: number, remark: string): Promise<FonepayCreateQrResponse> {
   const cleanAmount = Number(amount).toFixed(2);
   const cleanRemark = String(remark).trim().toUpperCase();
 
-  // 1. Try server proxy endpoint first
   try {
     const res = await fetch(`/api/payment/create-qr?amount=${encodeURIComponent(cleanAmount)}&remark=${encodeURIComponent(cleanRemark)}`, {
       method: "GET",
@@ -165,42 +164,24 @@ export async function createFonepayQr(amount: number, remark: string): Promise<F
     if (res.ok && data && data.success) {
       return data;
     }
-    console.warn("Server proxy QR creation returned non-success, attempting direct fallback...", data);
-  } catch (proxyErr) {
-    console.warn("Server proxy QR creation request failed, attempting direct fallback...", proxyErr);
-  }
-
-  // 2. Direct fallback to Fonepay Setup API
-  try {
-    const directUrl = `https://lgpay-setup-api.vercel.app/create-qr?amount=${encodeURIComponent(cleanAmount)}&remark=${encodeURIComponent(cleanRemark)}`;
-    const directRes = await fetch(directUrl, {
-      method: "GET",
-      headers: { "Accept": "application/json" },
-    });
-
-    const directData = await directRes.json().catch(() => null);
-    if (directRes.ok && directData && directData.success) {
-      return directData;
-    }
-
+    
     const errorMsg = extractErrorMessage(
-      directData?.error || directData?.message || directData,
-      `Failed to generate Fonepay QR (Status ${directRes.status}). Please try again.`
+      data?.error || data?.message || data,
+      `Failed to generate Fonepay QR (Status ${res.status}). Please try again.`
     );
     throw new Error(errorMsg);
-  } catch (directErr: any) {
-    const msg = extractErrorMessage(directErr, "Failed to connect to Fonepay QR generator. Please check your network or try again.");
+  } catch (err: any) {
+    const msg = extractErrorMessage(err, "Failed to connect to Fonepay QR generator. Please check your network or try again.");
     throw new Error(msg);
   }
 }
 
 /**
- * Verify Fonepay payment via internal server proxy with direct fallback support
+ * Verify Fonepay payment strictly via internal server proxy
  */
 export async function verifyFonepayPayment(remark: string): Promise<FonepayVerifyResponse> {
   const cleanRemark = String(remark).trim().toUpperCase();
 
-  // 1. Try server proxy endpoint first
   try {
     const res = await fetch(`/api/payment/verify?remark=${encodeURIComponent(cleanRemark)}`, {
       method: "GET",
@@ -211,51 +192,14 @@ export async function verifyFonepayPayment(remark: string): Promise<FonepayVerif
     if (res.ok && data) {
       return data;
     }
-    console.warn("Server proxy verification returned non-ok, attempting direct fallback...", data);
-  } catch (proxyErr) {
-    console.warn("Server proxy verification request failed, attempting direct fallback...", proxyErr);
-  }
-
-  // 2. Direct fallback to Fonepay Setup API
-  try {
-    const directUrl = `https://lgpay-setup-api.vercel.app/verify?remark=${encodeURIComponent(cleanRemark)}`;
-    const directRes = await fetch(directUrl, {
-      method: "GET",
-      headers: { "Accept": "application/json" },
-    });
-
-    let directData = await directRes.json().catch(() => null);
-    if (directRes.ok && directData) {
-      // If not verified, try alternate case (lowercase/uppercase)
-      if (!directData.verified) {
-        const altRemark =
-          cleanRemark === cleanRemark.toLowerCase()
-            ? cleanRemark.toUpperCase()
-            : cleanRemark.toLowerCase();
-        try {
-          const altUrl = `https://lgpay-setup-api.vercel.app/verify?remark=${encodeURIComponent(altRemark)}`;
-          const altRes = await fetch(altUrl, {
-            method: "GET",
-            headers: { "Accept": "application/json" },
-          });
-          const altData = await altRes.json().catch(() => null);
-          if (altData && altData.verified) {
-            directData = altData;
-          }
-        } catch {
-          // ignore
-        }
-      }
-      return directData;
-    }
-
+    
     const errorMsg = extractErrorMessage(
-      directData?.error || directData?.message || directData,
-      `Failed to verify payment (Status ${directRes.status}).`
+      data?.error || data?.message || data,
+      `Failed to verify payment (Status ${res.status}).`
     );
     throw new Error(errorMsg);
-  } catch (directErr: any) {
-    const msg = extractErrorMessage(directErr, "Unable to reach Fonepay verification server. Please try again.");
+  } catch (err: any) {
+    const msg = extractErrorMessage(err, "Unable to reach Fonepay verification server. Please try again.");
     throw new Error(msg);
   }
 }
