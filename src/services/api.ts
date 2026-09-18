@@ -69,15 +69,23 @@ export function extractErrorMessage(err: any, fallback: string = "An unexpected 
 }
 
 /**
- * Fetch provider balance via internal server proxy
- * Keeps external provider URL and API keys completely hidden from client inspect
+ * Fetch FFGlory provider balance via internal server proxy
+ * Keeps external provider URL and API keys completely hidden from client DevTools
  */
 export async function fetchProviderBalance(): Promise<ProviderBalanceResponse> {
   try {
-    const res = await fetch("/api/balance", {
+    // Primary secured backend route with fallback
+    let res = await fetch("/api/ffglory/balance", {
       method: "GET",
-      headers: { "Accept": "application/json" },
+      headers: { Accept: "application/json" },
     });
+
+    if (res.status === 404) {
+      res = await fetch("/api/balance", {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+    }
 
     const data = await res.json().catch(() => null);
     if (!res.ok || !data) {
@@ -90,23 +98,29 @@ export async function fetchProviderBalance(): Promise<ProviderBalanceResponse> {
 
     return data;
   } catch (err: any) {
-    const msg = extractErrorMessage(err, "Failed to connect to provider balance service.");
+    const msg = extractErrorMessage(err, "Failed to connect to FFGlory provider service.");
     throw new Error(msg);
   }
 }
 
+const VALID_PROVIDER_SERVERS = ["IND", "BD", "PK", "US", "EU", "RU", "SA"];
+
 export function normalizeServerCode(code?: string): string {
   if (!code) return "IND";
   const clean = String(code).trim().toUpperCase();
-  if (clean === "IN" || clean === "IND" || clean === "INDIA") return "IND";
-  if (clean === "INDO" || clean === "ID" || clean === "INDONESIA") return "ID";
+  if (clean === "IN" || clean === "IND" || clean === "INDIA" || clean === "NP" || clean === "NEPAL") return "IND";
   if (clean === "BD" || clean === "BANGLADESH") return "BD";
   if (clean === "PK" || clean === "PAKISTAN") return "PK";
-  return clean;
+  if (clean === "US" || clean === "USA" || clean === "NA" || clean === "AMERICA") return "US";
+  if (clean === "EU" || clean === "EUROPE") return "EU";
+  if (clean === "RU" || clean === "RUSSIA") return "RU";
+  if (clean === "SA" || clean === "SAC" || clean === "BR" || clean === "BRAZIL") return "SA";
+  if (clean === "ID" || clean === "SG" || clean === "TH" || clean === "VN" || clean === "ME") return "IND";
+  return VALID_PROVIDER_SERVERS.includes(clean) ? clean : "IND";
 }
 
 /**
- * Trigger bot action via internal server proxy
+ * Trigger bot action via internal FFGlory server proxy
  * Prevents provider credentials and endpoint URLs from leaking in browser DevTools
  */
 export async function launchBotAction(guildId: string, server: string = "IND"): Promise<any> {
@@ -118,14 +132,25 @@ export async function launchBotAction(guildId: string, server: string = "IND"): 
   };
 
   try {
-    const res = await fetch("/api/launch", {
+    let res = await fetch("/api/ffglory/launch", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Accept": "application/json",
+        Accept: "application/json",
       },
       body: JSON.stringify(payload),
     });
+
+    if (res.status === 404) {
+      res = await fetch("/api/launch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+    }
 
     const data = await res.json().catch(() => null);
     if (!res.ok || !data) {
@@ -148,59 +173,108 @@ export async function launchBotAction(guildId: string, server: string = "IND"): 
 }
 
 /**
- * Generate Fonepay QR Code strictly via internal server proxy
+ * Generate Merchant (Fonepay) QR Code strictly via internal server proxy
  */
 export async function createFonepayQr(amount: number, remark: string): Promise<FonepayCreateQrResponse> {
   const cleanAmount = Number(amount).toFixed(2);
   const cleanRemark = String(remark).trim().toUpperCase();
 
   try {
-    const res = await fetch(`/api/payment/create-qr?amount=${encodeURIComponent(cleanAmount)}&remark=${encodeURIComponent(cleanRemark)}`, {
-      method: "GET",
-      headers: { "Accept": "application/json" },
-    });
+    let res = await fetch(
+      `/api/merchant/create-qr?amount=${encodeURIComponent(cleanAmount)}&remark=${encodeURIComponent(cleanRemark)}`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      }
+    );
+
+    if (res.status === 404) {
+      res = await fetch(
+        `/api/payment/create-qr?amount=${encodeURIComponent(cleanAmount)}&remark=${encodeURIComponent(cleanRemark)}`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        }
+      );
+    }
 
     const data = await res.json().catch(() => null);
     if (res.ok && data && data.success) {
       return data;
     }
-    
+
     const errorMsg = extractErrorMessage(
       data?.error || data?.message || data,
-      `Failed to generate Fonepay QR (Status ${res.status}). Please try again.`
+      `Failed to generate Merchant QR (Status ${res.status}). Please try again.`
     );
     throw new Error(errorMsg);
   } catch (err: any) {
-    const msg = extractErrorMessage(err, "Failed to connect to Fonepay QR generator. Please check your network or try again.");
+    const msg = extractErrorMessage(
+      err,
+      "Failed to connect to Merchant QR generator. Please check your network or try again."
+    );
     throw new Error(msg);
   }
 }
 
 /**
- * Verify Fonepay payment strictly via internal server proxy
+ * Verify Merchant (Fonepay) payment strictly via internal server proxy
  */
 export async function verifyFonepayPayment(remark: string): Promise<FonepayVerifyResponse> {
   const cleanRemark = String(remark).trim().toUpperCase();
 
   try {
-    const res = await fetch(`/api/payment/verify?remark=${encodeURIComponent(cleanRemark)}`, {
+    let res = await fetch(`/api/merchant/verify?remark=${encodeURIComponent(cleanRemark)}`, {
       method: "GET",
-      headers: { "Accept": "application/json" },
+      headers: { Accept: "application/json" },
     });
+
+    if (res.status === 404) {
+      res = await fetch(`/api/payment/verify?remark=${encodeURIComponent(cleanRemark)}`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+    }
 
     const data = await res.json().catch(() => null);
     if (res.ok && data) {
       return data;
     }
-    
+
     const errorMsg = extractErrorMessage(
       data?.error || data?.message || data,
       `Failed to verify payment (Status ${res.status}).`
     );
     throw new Error(errorMsg);
   } catch (err: any) {
-    const msg = extractErrorMessage(err, "Unable to reach Fonepay verification server. Please try again.");
+    const msg = extractErrorMessage(err, "Unable to reach Merchant verification server. Please try again.");
     throw new Error(msg);
+  }
+}
+
+/**
+ * Check connectivity to FFGlory backend service
+ */
+export async function checkFFGloryStatus(): Promise<{ status: string; statusCode?: number }> {
+  try {
+    const res = await fetch("/api/ffglory/status");
+    const data = await res.json().catch(() => null);
+    return data || { status: res.ok ? "connected" : "unknown" };
+  } catch {
+    return { status: "offline" };
+  }
+}
+
+/**
+ * Check connectivity to Merchant payment backend service
+ */
+export async function checkMerchantStatus(): Promise<{ status: string; statusCode?: number }> {
+  try {
+    const res = await fetch("/api/merchant/status");
+    const data = await res.json().catch(() => null);
+    return data || { status: res.ok ? "connected" : "unknown" };
+  } catch {
+    return { status: "offline" };
   }
 }
 

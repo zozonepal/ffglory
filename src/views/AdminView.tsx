@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   ShieldAlert,
   Server,
@@ -275,6 +275,59 @@ export const AdminView: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [creditAdjustment, setCreditAdjustment] = useState<number>(1);
   const [userSearch, setUserSearch] = useState("");
+  const [userFilterTab, setUserFilterTab] = useState<"all" | "purchased" | "zero">("all");
+  const [reconcilingAll, setReconcilingAll] = useState(false);
+
+  // Unified users list merging RTDB users node with payment requests
+  const mergedUsers = useMemo(() => {
+    const map = new Map<string, UserProfile & { approvedCreditsTotal: number; approvedAmountRs: number; totalRequests: number }>();
+
+    // 1. Add all users from users node
+    allUsers.forEach((u) => {
+      map.set(u.uid, {
+        ...u,
+        approvedCreditsTotal: 0,
+        approvedAmountRs: 0,
+        totalRequests: 0,
+      });
+    });
+
+    // 2. Aggregate from payment requests
+    requests.forEach((r) => {
+      let existing = map.get(r.userId);
+      if (!existing && r.userEmail) {
+        for (const val of map.values()) {
+          if (val.email && val.email.toLowerCase() === r.userEmail.toLowerCase()) {
+            existing = val;
+            break;
+          }
+        }
+      }
+
+      if (existing) {
+        existing.totalRequests = (existing.totalRequests || 0) + 1;
+        if (r.status === "approved") {
+          existing.approvedCreditsTotal = (existing.approvedCreditsTotal || 0) + (r.credits || 0);
+          existing.approvedAmountRs = (existing.approvedAmountRs || 0) + (r.amountRs || 0);
+        }
+      } else {
+        // User created a payment request but record in users was separate or missing
+        map.set(r.userId, {
+          uid: r.userId,
+          email: r.userEmail || "Unknown",
+          username: r.userEmail?.split("@")[0] || "User",
+          role: "user",
+          credits: 0,
+          createdAt: r.createdAt || Date.now(),
+          totalRequests: 1,
+          approvedCreditsTotal: r.status === "approved" ? (r.credits || 0) : 0,
+          approvedAmountRs: r.status === "approved" ? (r.amountRs || 0) : 0,
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  }, [allUsers, requests]);
 
   // Load Provider Balance
   const loadBalance = async () => {
@@ -425,10 +478,72 @@ export const AdminView: React.FC = () => {
     try {
       const current = typeof user.credits === "number" ? user.credits : 0;
       const next = Math.max(0, current + addAmount);
-      await resilientUpdate(`users/${user.uid}`, { credits: next });
+      await resilientUpdate(`users/${user.uid}`, {
+        uid: user.uid,
+        email: user.email,
+        credits: next,
+        updatedAt: Date.now(),
+      });
+      setAllUsers((prev) => {
+        const exists = prev.some((u) => u.uid === user.uid);
+        if (exists) {
+          return prev.map((u) => (u.uid === user.uid ? { ...u, credits: next } : u));
+        }
+        return [...prev, { ...user, credits: next }];
+      });
       setSelectedUser(null);
     } catch (err: any) {
       alert("Failed to adjust credits: " + err.message);
+    }
+  };
+
+  const handleReconcileUser = async (u: UserProfile & { approvedCreditsTotal: number }) => {
+    try {
+      const current = typeof u.credits === "number" ? u.credits : 0;
+      const target = Math.max(current, u.approvedCreditsTotal);
+      await resilientUpdate(`users/${u.uid}`, {
+        uid: u.uid,
+        email: u.email,
+        credits: target,
+        updatedAt: Date.now(),
+      });
+      setAllUsers((prev) => {
+        const exists = prev.some((item) => item.uid === u.uid);
+        if (exists) {
+          return prev.map((item) => (item.uid === u.uid ? { ...item, credits: target } : item));
+        }
+        return [...prev, { ...u, credits: target }];
+      });
+      alert(`Successfully synced and credited ${target} credits to ${u.email}!`);
+    } catch (err: any) {
+      alert("Failed to sync credits: " + err.message);
+    }
+  };
+
+  const handleReconcileAll = async () => {
+    setReconcilingAll(true);
+    try {
+      let count = 0;
+      for (const u of mergedUsers) {
+        if (u.approvedCreditsTotal > 0 && (u.credits ?? 0) < u.approvedCreditsTotal) {
+          await resilientUpdate(`users/${u.uid}`, {
+            uid: u.uid,
+            email: u.email,
+            credits: u.approvedCreditsTotal,
+            updatedAt: Date.now(),
+          });
+          count++;
+        }
+      }
+      const freshUsers = await resilientGet("users", null);
+      if (freshUsers && typeof freshUsers === "object") {
+        setAllUsers(Object.keys(freshUsers).map((k) => ({ uid: k, ...freshUsers[k] })));
+      }
+      alert(`Successfully reconciled and restored credits for ${count} customer(s)!`);
+    } catch (err: any) {
+      alert("Reconciliation failed: " + err.message);
+    } finally {
+      setReconcilingAll(false);
     }
   };
 
@@ -831,103 +946,209 @@ export const AdminView: React.FC = () => {
 
       {/* Row 4: Users Directory & Direct Credit Adjustment */}
       <div className="rounded-2xl border border-white/[0.08] bg-[#12141a] p-6 shadow-xl">
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/[0.06]">
-          <div className="flex items-center gap-2">
-            <h3 className="text-base font-bold text-white font-['Outfit']">
-              User Directory & Manual Credit Adjustment
-            </h3>
-            <span className="px-2 py-0.5 rounded-full bg-slate-800 text-xs font-bold text-slate-300">
-              {allUsers.length} Users
-            </span>
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/[0.06]">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-white font-['Outfit']">
+                User Directory & Purchase Reconciliation
+              </h3>
+              <span className="px-2.5 py-0.5 rounded-full bg-slate-800 text-xs font-bold text-slate-300">
+                {mergedUsers.length} Customers
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Verify real customer purchases, monitor balance deductions, and reconcile missing credits instantly.
+            </p>
           </div>
 
-          <div className="relative">
-            <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-            <input
-              type="text"
-              value={userSearch}
-              onChange={(e) => setUserSearch(e.target.value)}
-              placeholder="Search by email or UID..."
-              className="rounded-xl bg-[#0b0d11] border border-slate-800 pl-8 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400 w-52"
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleReconcileAll}
+              disabled={reconcilingAll}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/10 transition-all cursor-pointer disabled:opacity-50"
+              title="Ensure all users who purchased credits are credited accurately"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${reconcilingAll ? "animate-spin" : ""}`} />
+              <span>{reconcilingAll ? "Reconciling..." : "⚡ Reconcile All Credits"}</span>
+            </button>
+
+            <div className="relative">
+              <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                type="text"
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                placeholder="Search email or UID..."
+                className="rounded-xl bg-[#0b0d11] border border-slate-800 pl-8 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400 w-52"
+              />
+            </div>
           </div>
         </div>
 
-        <div className="overflow-x-auto mt-4">
+        {/* Filter Tabs */}
+        <div className="flex items-center gap-2 mt-4 pb-2 border-b border-slate-800/40 text-xs">
+          <button
+            onClick={() => setUserFilterTab("all")}
+            className={`px-3 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+              userFilterTab === "all"
+                ? "bg-slate-800 text-white"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            All Users ({mergedUsers.length})
+          </button>
+          <button
+            onClick={() => setUserFilterTab("purchased")}
+            className={`px-3 py-1 rounded-lg font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
+              userFilterTab === "purchased"
+                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <span>Purchased Credits</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/30 text-[10px]">
+              {mergedUsers.filter((u) => u.approvedCreditsTotal > 0).length}
+            </span>
+          </button>
+          <button
+            onClick={() => setUserFilterTab("zero")}
+            className={`px-3 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+              userFilterTab === "zero"
+                ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            Zero Balance ({mergedUsers.filter((u) => (u.credits ?? 0) === 0).length})
+          </button>
+        </div>
+
+        <div className="overflow-x-auto mt-3">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider font-semibold">
-                <th className="py-2.5 px-3">User</th>
+                <th className="py-2.5 px-3">Customer</th>
                 <th className="py-2.5 px-3">Role</th>
-                <th className="py-2.5 px-3">Credits Balance</th>
-                <th className="py-2.5 px-3">Registered</th>
-                <th className="py-2.5 px-3">Quick Adjust</th>
+                <th className="py-2.5 px-3">Current Balance</th>
+                <th className="py-2.5 px-3">Verified Top-ups</th>
+                <th className="py-2.5 px-3">Purchase Status</th>
+                <th className="py-2.5 px-3 text-right">Quick Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/40">
-              {allUsers
-                .filter(
-                  (u) =>
-                    !userSearch ||
-                    u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
-                    u.uid.toLowerCase().includes(userSearch.toLowerCase())
-                )
-                .slice(0, 15)
-                .map((u) => (
-                  <tr key={u.uid} className="hover:bg-slate-800/20">
-                    <td className="py-3 px-3">
-                      <div className="font-semibold text-white">{u.email}</div>
-                      <div className="text-[10px] font-mono text-slate-500 truncate max-w-[140px]">
-                        {u.uid}
-                      </div>
-                    </td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold ${
-                          u.role === "admin"
-                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
-                            : "bg-slate-800 text-slate-400"
-                        }`}
-                      >
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className="font-extrabold text-sm text-emerald-400">
-                        {u.credits ?? 0}
-                      </span>{" "}
-                      <span className="text-[10px] text-slate-400">Credits</span>
-                    </td>
-                    <td className="py-3 px-3 text-slate-400 text-[11px]">
-                      {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "N/A"}
-                    </td>
-                    <td className="py-3 px-3">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleAdjustCredits(u, 1)}
-                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs"
-                          title="Add 1 Credit"
+              {mergedUsers
+                .filter((u) => {
+                  if (userFilterTab === "purchased" && u.approvedCreditsTotal <= 0) return false;
+                  if (userFilterTab === "zero" && (u.credits ?? 0) > 0) return false;
+                  if (!userSearch) return true;
+                  const query = userSearch.toLowerCase();
+                  return (
+                    u.email.toLowerCase().includes(query) ||
+                    u.uid.toLowerCase().includes(query)
+                  );
+                })
+                .map((u) => {
+                  const currentBalance = u.credits ?? 0;
+                  const hasPurchased = u.approvedCreditsTotal > 0;
+                  const needsSync = hasPurchased && currentBalance === 0;
+
+                  return (
+                    <tr key={u.uid} className="hover:bg-slate-800/20 transition-colors">
+                      <td className="py-3 px-3">
+                        <div className="font-semibold text-white flex items-center gap-1.5">
+                          <span>{u.email}</span>
+                          {hasPurchased && (
+                            <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold">
+                              Paid User
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-500 truncate max-w-[160px]">
+                          UID: {u.uid}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold ${
+                            u.role === "admin"
+                              ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                              : "bg-slate-800 text-slate-400"
+                          }`}
                         >
-                          +1
-                        </button>
-                        <button
-                          onClick={() => handleAdjustCredits(u, 5)}
-                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs"
-                          title="Add 5 Credits"
-                        >
-                          +5
-                        </button>
-                        <button
-                          onClick={() => handleAdjustCredits(u, -1)}
-                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-rose-400 font-bold text-xs"
-                          title="Deduct 1 Credit"
-                        >
-                          -1
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {u.role}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="font-black text-sm text-emerald-400">
+                          {currentBalance}
+                        </span>{" "}
+                        <span className="text-[10px] text-slate-400">Credits</span>
+                      </td>
+                      <td className="py-3 px-3">
+                        {hasPurchased ? (
+                          <div>
+                            <span className="font-bold text-xs text-cyan-300">
+                              +{u.approvedCreditsTotal} Credits
+                            </span>
+                            <div className="text-[10px] text-slate-400">
+                              Total RS {u.approvedAmountRs}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-slate-500 text-[11px]">No purchases</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        {needsSync ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-semibold w-fit">
+                              <AlertCircle className="h-3 w-3" />
+                              <span>0 Left (Used or Needs Sync)</span>
+                            </span>
+                            <button
+                              onClick={() => handleReconcileUser(u)}
+                              className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 underline text-left cursor-pointer"
+                              title="Restore full approved credits into balance"
+                            >
+                              ⚡ Sync Balance (+{u.approvedCreditsTotal})
+                            </button>
+                          </div>
+                        ) : currentBalance > 0 ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-semibold">
+                            <CheckCircle className="h-3 w-3" />
+                            <span>Active Balance</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 text-[10px]">Standard User</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleAdjustCredits(u, 1)}
+                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs cursor-pointer"
+                            title="Add 1 Credit"
+                          >
+                            +1
+                          </button>
+                          <button
+                            onClick={() => handleAdjustCredits(u, 5)}
+                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs cursor-pointer"
+                            title="Add 5 Credits"
+                          >
+                            +5
+                          </button>
+                          <button
+                            onClick={() => handleAdjustCredits(u, -1)}
+                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-rose-400 font-bold text-xs cursor-pointer"
+                            title="Deduct 1 Credit"
+                          >
+                            -1
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
         </div>

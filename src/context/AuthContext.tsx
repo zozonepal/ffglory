@@ -35,8 +35,16 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Super admin email
-const SUPER_ADMIN_EMAIL = "deepsonpokhrel12@gmail.com";
+// Super admin emails
+const ADMIN_EMAILS = [
+  "deepsonpokhrel12@gmail.com",
+  "fitoorbhandari38@gmail.com",
+];
+
+export const isAuthorizedAdmin = (email?: string | null): boolean => {
+  if (!email) return false;
+  return ADMIN_EMAILS.some((admin) => admin.toLowerCase() === email.trim().toLowerCase());
+};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -65,7 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCurrentUser(user);
 
       if (user) {
-        const isSuperAdmin = user.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+        const isSuperAdmin = isAuthorizedAdmin(user.email);
 
         // 1. Preload from local cache to eliminate race conditions & instant display
         const localCached = getLocalData(`users/${user.uid}`, null);
@@ -150,7 +158,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signUpWithEmail = async (email: string, pass: string, username?: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
     const user = cred.user;
-    const isSuperAdmin = user.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+    const isSuperAdmin = isAuthorizedAdmin(user.email);
     const newProfile: UserProfile = {
       uid: user.uid,
       email: user.email || "",
@@ -166,7 +174,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithGoogle = async () => {
     const cred = await signInWithPopup(auth, googleProvider);
     const user = cred.user;
-    const isSuperAdmin = user.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+    const isSuperAdmin = isAuthorizedAdmin(user.email);
 
     const existing = await resilientGet(`users/${user.uid}`, null);
     if (!existing) {
@@ -215,7 +223,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isAdmin = Boolean(
     userProfile?.role === "admin" ||
-    currentUser?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()
+    isAuthorizedAdmin(currentUser?.email)
   );
 
   return (

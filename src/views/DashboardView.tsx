@@ -4,6 +4,7 @@ import {
   Globe2,
   Users,
   AlertTriangle,
+  AlertCircle,
   CheckCircle2,
   RefreshCw,
   Coins,
@@ -799,6 +800,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
               Are you sure you want to launch a new group?
             </p>
 
+            {/* Important Prerequisites Box to prevent launch failure */}
+            <div className="mb-5 rounded-xl border border-amber-500/30 bg-amber-950/20 p-3.5 text-xs text-amber-200">
+              <div className="flex items-center gap-1.5 font-bold text-amber-300 text-xs mb-1.5">
+                <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" />
+                <span>Critical Free Fire Guild Requirements</span>
+              </div>
+              <ul className="space-y-1 text-[11px] text-amber-200/90 list-disc list-inside">
+                <li><strong className="text-white">Auto Approval:</strong> Must be set to <span className="text-emerald-400 font-bold">ON</span> in Free Fire Guild settings</li>
+                <li><strong className="text-white">Level & Rank:</strong> Must be set to <span className="text-cyan-300 font-bold">DEFAULT / No Requirement</span></li>
+                <li><strong className="text-white">Free Member Slots:</strong> At least 4 open slots required for bots to enter</li>
+              </ul>
+              <div className="mt-2 pt-2 border-t border-amber-500/20 text-[10px] text-amber-300/80">
+                ⚠️ If Auto Approval is OFF or your guild is 50/50 full, bots cannot enter.
+              </div>
+            </div>
+
             {/* Details Summary grid matching Screenshot 1 */}
             <div className="rounded-xl bg-slate-950 border border-slate-900 px-4 py-3 text-xs sm:text-sm font-medium space-y-2 mb-6">
               <div className="flex justify-between items-center text-slate-400 py-1 border-b border-slate-900/40">
@@ -836,7 +853,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
                 onClick={executeLaunch}
                 className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black text-xs sm:text-sm tracking-wide uppercase shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all cursor-pointer font-orbitron"
               >
-                Proceed
+                Proceed & Launch Bots
               </button>
             </div>
             

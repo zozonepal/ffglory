@@ -28,7 +28,7 @@ import {
   extractErrorMessage,
 } from "../services/api";
 import { FonepayCreateQrResponse, PaymentRequest } from "../types";
-import { resilientOnValue, resilientPush, resilientUpdate, resilientSet } from "../services/resilientDb";
+import { resilientOnValue, resilientPush, resilientUpdate, resilientSet, resilientGet } from "../services/resilientDb";
 
 interface DepositViewProps {
   onClose?: () => void;
@@ -150,8 +150,18 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
     }
 
     try {
-      // 1. Credit the user balance
-      const currentCredits = userProfile?.credits || 0;
+      // 1. Credit the user balance safely by fetching latest balance first
+      let currentCredits = userProfile?.credits || 0;
+      if (currentUser) {
+        try {
+          const userSnap = await resilientGet(`users/${currentUser.uid}`, null);
+          if (userSnap && typeof userSnap.credits === "number") {
+            currentCredits = userSnap.credits;
+          }
+        } catch (fetchErr) {
+          console.warn("Could not prefetch RTDB balance:", fetchErr);
+        }
+      }
       const updatedCredits = currentCredits + confirmedCredits;
       await updateUserCredits(updatedCredits);
 
@@ -160,7 +170,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
         const timestamp = Date.now();
         const txId = confirmedBillId || confirmedRemark;
 
-        const newRecord: Omit<PaymentRequest, "id"> = {
+        const newRecord: Omit<PaymentRequest, "id"> & { credited?: boolean; creditedBalance?: number } = {
           userId: currentUser.uid,
           userEmail: currentUser.email || "Unknown",
           amountRs: confirmedAmount,
@@ -168,6 +178,8 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
           transactionId: txId,
           paymentMethod: "fonepay",
           status: "approved",
+          credited: true,
+          creditedBalance: updatedCredits,
           createdAt: timestamp,
         };
         // Global payment requests node
