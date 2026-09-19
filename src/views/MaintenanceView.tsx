@@ -11,8 +11,6 @@ import {
   Radio,
   ArrowRight,
   Lock,
-  Mail,
-  MessageSquare,
   ExternalLink,
   ChevronRight,
   CheckCircle2,
@@ -337,24 +335,6 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
             {refreshMessage}
           </p>
         )}
-
-        {/* Support inquiries */}
-        <div className="mt-8 text-xs text-slate-400 flex flex-wrap items-center justify-center gap-4">
-          <span className="flex items-center gap-1.5">
-            <Mail className="h-3.5 w-3.5 text-cyan-400" />
-            <span>Support:</span>
-            <a href={`mailto:${config.contactEmail || "support@ffglorynepal.com"}`} className="text-cyan-300 hover:underline">
-              {config.contactEmail || "support@ffglorynepal.com"}
-            </a>
-          </span>
-          {config.whatsappContact && (
-            <span className="flex items-center gap-1.5">
-              <MessageSquare className="h-3.5 w-3.5 text-emerald-400" />
-              <span>WhatsApp Helpline:</span>
-              <span className="text-slate-200 font-mono">{config.whatsappContact}</span>
-            </span>
-          )}
-        </div>
       </main>
 
       {/* Footer */}

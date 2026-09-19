@@ -115,7 +115,6 @@ export const AdminView: React.FC = () => {
   const [formHeadline, setFormHeadline] = useState<string>(maintenance.headline || "System Update in Progress");
   const [formMessage, setFormMessage] = useState<string>(maintenance.message || "");
   const [formEstimated, setFormEstimated] = useState<string>(maintenance.estimatedReturn || "");
-  const [formContactEmail, setFormContactEmail] = useState<string>(maintenance.contactEmail || "");
 
   const handleDownloadPDF = () => {
     try {
@@ -404,7 +403,6 @@ export const AdminView: React.FC = () => {
       setFormHeadline(cfg.headline || "System Update in Progress");
       setFormMessage(cfg.message || "");
       setFormEstimated(cfg.estimatedReturn || "");
-      setFormContactEmail(cfg.contactEmail || "");
     });
     return () => unsubscribe();
   }, []);
@@ -635,7 +633,6 @@ export const AdminView: React.FC = () => {
         headline: formHeadline.trim(),
         message: formMessage.trim(),
         estimatedReturn: formEstimated.trim(),
-        contactEmail: formContactEmail.trim(),
       });
       setMaintenanceSuccess("Maintenance screen details updated successfully!");
       setShowMaintenanceForm(false);
