@@ -101,6 +101,18 @@ export interface ServerRegion {
   description: string;
 }
 
+export interface MaintenanceConfig {
+  enabled: boolean;
+  headline?: string;
+  message?: string;
+  estimatedReturn?: string;
+  allowAdminBypass?: boolean;
+  contactEmail?: string;
+  whatsappContact?: string;
+  telegramChannel?: string;
+  updatedAt?: number;
+}
+
 export const SUPPORTED_SERVERS: ServerRegion[] = [
   { code: "IND", name: "India", flag: "🇮🇳", region: "South Asia", description: "India & South Asian clan glory nodes" },
   { code: "BD", name: "Bangladesh", flag: "🇧🇩", region: "South Asia", description: "Dedicated Bangladesh high-speed guild cluster" },

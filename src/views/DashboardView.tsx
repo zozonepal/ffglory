@@ -154,8 +154,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenDeposit }) =
     const targetGuildId = guildId.trim();
 
     try {
-      // 1. Call provider endpoint /launch strictly with user-selected guild server and user attribution
-      const response = await launchBotAction(targetGuildId, serverRegion, currentUser.email || currentUser.uid);
+      let idToken = "";
+      try {
+        idToken = await currentUser.getIdToken();
+      } catch {
+        // ignore
+      }
+
+      // 1. Call provider endpoint /launch strictly with user credentials and credit protection
+      const response = await launchBotAction(
+        targetGuildId,
+        serverRegion,
+        currentUser.email || currentUser.uid,
+        currentUser.uid,
+        idToken
+      );
 
       // 2. Upon HTTP 200 success, deduct EXACTLY 1 credit from user balance (1 Squad = 1 Credit)
       const remainingCredits = await deductUserCredits(1);

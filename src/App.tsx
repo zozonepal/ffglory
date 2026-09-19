@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { AuthView } from "./views/AuthView";
 import { DashboardView } from "./views/DashboardView";
@@ -7,13 +7,34 @@ import { HistoryView } from "./views/HistoryView";
 import { TransactionsView } from "./views/TransactionsView";
 import { SettingsView } from "./views/SettingsView";
 import { AdminView } from "./views/AdminView";
+import { MaintenanceView } from "./views/MaintenanceView";
 import { Navbar } from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
 import { CREDIT_RATE_RS } from "./services/api";
+import { MaintenanceConfig } from "./types";
+import {
+  getCachedMaintenanceConfig,
+  subscribeMaintenanceConfig,
+  updateMaintenanceConfig,
+  getIsAdminBypassActive,
+  setAdminBypassActive,
+} from "./services/maintenanceService";
 
 function MainApp() {
-  const { currentUser, loading } = useAuth();
+  const { currentUser, loading, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState<string>("dashboard");
+  const [maintenanceConfig, setMaintenanceConfig] = useState<MaintenanceConfig>(
+    getCachedMaintenanceConfig()
+  );
+  const [adminBypass, setAdminBypass] = useState<boolean>(getIsAdminBypassActive());
+  const [previewMaintenance, setPreviewMaintenance] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsub = subscribeMaintenanceConfig((cfg) => {
+      setMaintenanceConfig(cfg);
+    });
+    return () => unsub();
+  }, []);
 
   if (loading) {
     return (
@@ -33,6 +54,30 @@ function MainApp() {
     );
   }
 
+  // Determine if user can bypass maintenance mode:
+  // Allowed if user is authenticated Super Admin OR has active staff bypass session
+  const isMaintenanceActive = maintenanceConfig.enabled;
+  const canBypass = (isAdmin || adminBypass) && !previewMaintenance;
+
+  // If maintenance mode is active and user cannot bypass (or is explicitly previewing), show Update In Progress screen
+  if (isMaintenanceActive && !canBypass) {
+    return (
+      <MaintenanceView
+        config={maintenanceConfig}
+        isPreviewing={previewMaintenance}
+        onExitPreview={() => setPreviewMaintenance(false)}
+        onBypass={() => {
+          setAdminBypass(true);
+          setAdminBypassActive(true);
+          setPreviewMaintenance(false);
+        }}
+        onRefresh={() => {
+          setMaintenanceConfig(getCachedMaintenanceConfig());
+        }}
+      />
+    );
+  }
+
   // If not logged in, show the login/register screen
   if (!currentUser) {
     return <AuthView />;
@@ -40,6 +85,43 @@ function MainApp() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#080a0f] text-slate-100 selection:bg-amber-400/30 selection:text-amber-200">
+      {/* Top Admin Notice Banner when Maintenance Mode is active */}
+      {isMaintenanceActive && (isAdmin || adminBypass) && (
+        <div className="bg-[#191404] border-b border-amber-500/40 px-3 sm:px-6 py-2.5 text-xs flex flex-wrap items-center justify-between gap-2 text-amber-200 backdrop-blur-md relative z-50">
+          <div className="flex items-center gap-2.5">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+            </span>
+            <span className="font-extrabold uppercase tracking-wider font-orbitron text-[11px] text-amber-400">
+              MAINTENANCE MODE ACTIVE:
+            </span>
+            <span className="text-slate-300 hidden sm:inline">
+              Public visitors see the "Update in Progress" screen. Admin bypass active.
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPreviewMaintenance(true)}
+              className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-[11px] font-bold font-orbitron transition-colors cursor-pointer"
+            >
+              Preview Update Screen
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await updateMaintenanceConfig({ enabled: false });
+              }}
+              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold font-orbitron transition-colors cursor-pointer"
+            >
+              Disable Maintenance / Open Site
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Navbar */}
       <Navbar
         onOpenDeposit={() => setActiveTab("deposit")}

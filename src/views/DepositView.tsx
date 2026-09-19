@@ -81,12 +81,13 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
     message: string;
   } | null>(null);
 
-  // Payment completed success modal
-  const [paymentSuccess, setPaymentSuccess] = useState<{
+  // Deposit request submitted modal (Awaiting Admin Confirmation)
+  const [depositSubmitted, setDepositSubmitted] = useState<{
     credits: number;
     amountRs: number;
     billId?: string;
     remark: string;
+    gatewayVerified?: boolean;
   } | null>(null);
 
   const [copied, setCopied] = useState<string | null>(null);
@@ -101,14 +102,14 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
     : selectedPackCredits;
   const totalPayableRs = activeCredits * CREDIT_RATE_RS;
 
-  // Load user's recent verified payment history
+  // Load user's recent payment history (Pending & Approved)
   useEffect(() => {
     if (!currentUser) return;
     const unsubReqs = resilientOnValue("payment_requests", (data) => {
       if (data && typeof data === "object") {
         const list: PaymentRequest[] = Object.keys(data)
           .map((id) => ({ id, ...data[id] }))
-          .filter((r) => r.userId === currentUser.uid && r.status === "approved");
+          .filter((r) => r.userId === currentUser.uid);
         list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
         setMyRequests(list);
       } else {
@@ -136,98 +137,75 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
   };
 
   /**
-   * Finalize approved payment: credit user and save record in RTDB
+   * Submit payment request to Admin queue for verification & approval.
+   * STRICT SECURITY RULE: Credits are NEVER added directly to user account without Admin confirming the transaction!
    */
-  const handlePaymentApproved = async (
+  const handleSubmitPaymentForApproval = async (
     confirmedRemark: string,
     confirmedBillId: string,
     confirmedCredits: number,
-    confirmedAmount: number
+    confirmedAmount: number,
+    gatewayVerified: boolean = false
   ) => {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
     }
 
+    if (!currentUser) return;
+    setVerifying(true);
+
     try {
-      // 1. Credit the user balance safely by fetching latest balance first
-      let currentCredits = userProfile?.credits || 0;
-      if (currentUser) {
-        try {
-          const userSnap = await resilientGet(`users/${currentUser.uid}`, null);
-          if (userSnap && typeof userSnap.credits === "number") {
-            currentCredits = userSnap.credits;
-          }
-        } catch (fetchErr) {
-          console.warn("Could not prefetch RTDB balance:", fetchErr);
-        }
-      }
-      const updatedCredits = currentCredits + confirmedCredits;
-      await updateUserCredits(updatedCredits);
+      const timestamp = Date.now();
+      const txId = (confirmedBillId || confirmedRemark).trim();
 
-      // 2. Log transaction and user profile details in database
-      if (currentUser) {
-        const timestamp = Date.now();
-        const txId = confirmedBillId || confirmedRemark;
+      const newRecord: Omit<PaymentRequest, "id"> & { gatewayVerified?: boolean } = {
+        userId: currentUser.uid,
+        userEmail: currentUser.email || "Unknown",
+        amountRs: confirmedAmount,
+        credits: confirmedCredits,
+        transactionId: txId,
+        paymentMethod: "fonepay",
+        status: "pending", // STRICTLY PENDING! NEVER AUTO-CREDITED!
+        gatewayVerified,
+        createdAt: timestamp,
+      };
 
-        const newRecord: Omit<PaymentRequest, "id"> & { credited?: boolean; creditedBalance?: number } = {
-          userId: currentUser.uid,
-          userEmail: currentUser.email || "Unknown",
-          amountRs: confirmedAmount,
-          credits: confirmedCredits,
-          transactionId: txId,
-          paymentMethod: "fonepay",
-          status: "approved",
-          credited: true,
-          creditedBalance: updatedCredits,
-          createdAt: timestamp,
-        };
-        // Global payment requests node
-        await resilientPush("payment_requests", newRecord);
+      // 1. Submit to Global payment requests node for Admin verification
+      await resilientPush("payment_requests", newRecord);
 
-        // User-specific transaction history node
-        await resilientPush(`users/${currentUser.uid}/transactions`, {
-          transactionId: txId,
-          remark: confirmedRemark,
-          billId: confirmedBillId || null,
-          amountRs: confirmedAmount,
-          credits: confirmedCredits,
-          paymentMethod: "fonepay",
-          status: "approved",
-          timestamp,
-        });
+      // 2. User-specific transaction history node (as pending review)
+      await resilientPush(`users/${currentUser.uid}/transactions`, {
+        transactionId: txId,
+        remark: confirmedRemark,
+        billId: confirmedBillId || null,
+        amountRs: confirmedAmount,
+        credits: confirmedCredits,
+        paymentMethod: "fonepay",
+        status: "pending",
+        timestamp,
+      });
 
-        // Store / update user profile record in database with last topup details
-        await resilientUpdate(`users/${currentUser.uid}`, {
-          uid: currentUser.uid,
-          email: currentUser.email || "Unknown",
-          credits: updatedCredits,
-          lastTopupAmountRs: confirmedAmount,
-          lastTopupCredits: confirmedCredits,
-          lastTopupAt: timestamp,
-          updatedAt: timestamp,
-        });
-      }
-
-      // 3. Trigger success UI
-      setPaymentSuccess({
+      // 3. Trigger Submitted Confirmation UI
+      setDepositSubmitted({
         credits: confirmedCredits,
         amountRs: confirmedAmount,
         billId: confirmedBillId,
         remark: confirmedRemark,
+        gatewayVerified,
       });
       setQrData(null);
       setVerifyStatusText("");
     } catch (err: any) {
-      console.error("Error finalizing credit deposit:", err);
-      setQrError("Payment was verified but failed to update balance. Please contact support.");
+      console.error("Error submitting deposit request:", err);
+      setQrError("Failed to submit deposit request. Please try again.");
+    } finally {
+      setVerifying(false);
     }
   };
 
   /**
    * Check Fonepay payment verification
-   * If isManualClick is true and payment is not received, directly show "Payment Not Received"
-   * and NEVER write/save anything into the database as pending!
    */
   const checkVerification = async (
     remark: string,
@@ -249,28 +227,27 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
       const res = await verifyFonepayPayment(cleanRemark);
       if (res && res.verified) {
         setManualVerifyAlert(null);
-        setVerifyStatusText("Payment Verified! Crediting your account...");
-        await handlePaymentApproved(cleanRemark, billId || cleanRemark, credits, amount);
+        setVerifyStatusText("Payment detected! Submitting to Admin queue for approval...");
+        await handleSubmitPaymentForApproval(cleanRemark, billId || cleanRemark, credits, amount, true);
         return true;
       } else {
-        // Payment NOT received yet
+        // Payment NOT detected yet on automated gateway
         setManualVerifyAlert({
-          type: "error",
-          title: "Payment Not Received",
-          message: `No payment was received on Fonepay for remark "${cleanRemark}". Please scan the QR code and pay RS ${amount.toLocaleString()} in your mobile banking or wallet app (eSewa, Khalti, etc.) before clicking "Verify Payment".`,
+          type: "info",
+          title: "Payment Not Detected Automatically",
+          message: `Fonepay gateway has not auto-settled remark "${cleanRemark}" yet. If you have already paid in your mobile banking or wallet app, click "Submit for Admin Approval" below. The Admin will verify your transaction in bank records and approve your credits.`,
         });
-        setVerifyStatusText("Payment not detected. Please complete transfer in your app and click 'Verify Payment'.");
+        setVerifyStatusText("Payment not detected yet. You can submit for Admin verification below.");
         return false;
       }
     } catch (err: any) {
-      console.warn("Fonepay verification error:", err);
-      const msg = extractErrorMessage(err, "Unable to confirm payment from Fonepay gateway at this moment.");
+      console.warn("Fonepay verification query note:", err);
       setManualVerifyAlert({
-        type: "error",
-        title: "Payment Not Received",
-        message: msg.includes("Payment Not Received") ? msg : `${msg} If you haven't paid yet, please complete the transfer first.`,
+        type: "info",
+        title: "Manual Verification Available",
+        message: `Unable to reach automated Fonepay query. If you have already transferred RS ${amount.toLocaleString()} with remark "${cleanRemark}", click "Submit for Admin Approval" below so the Admin can verify and credit your balance.`,
       });
-      setVerifyStatusText("Ready for verification. Click 'Verify Payment' after paying.");
+      setVerifyStatusText("Ready for submission. Click 'Submit for Admin Approval' after paying.");
       return false;
     } finally {
       setVerifying(false);
@@ -328,46 +305,47 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
-      {/* SUCCESS CELEBRATION MODAL */}
-      {paymentSuccess && (
-        <div className="rounded-3xl border border-emerald-500/50 bg-[#061410]/95 backdrop-blur-2xl p-6 sm:p-8 shadow-[0_0_50px_rgba(0,229,153,0.3)] relative overflow-hidden text-center animate-in fade-in zoom-in-95 duration-300">
-          <div className="absolute top-0 left-1/4 right-1/4 h-24 bg-gradient-to-b from-emerald-500/20 to-transparent blur-2xl pointer-events-none" />
+      {/* SUBMISSION PENDING CELEBRATION MODAL */}
+      {depositSubmitted && (
+        <div className="rounded-3xl border border-amber-500/50 bg-[#141006]/95 backdrop-blur-2xl p-6 sm:p-8 shadow-[0_0_50px_rgba(245,158,11,0.25)] relative overflow-hidden text-center animate-in fade-in zoom-in-95 duration-300">
+          <div className="absolute top-0 left-1/4 right-1/4 h-24 bg-gradient-to-b from-amber-500/20 to-transparent blur-2xl pointer-events-none" />
 
           <div className="relative z-10 flex flex-col items-center max-w-md mx-auto">
-            <div className="h-16 w-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-emerald-400 shadow-[0_0_30px_rgba(0,229,153,0.5)] mb-4 animate-bounce">
-              <CheckCheck className="h-8 w-8 stroke-[3]" />
+            <div className="h-16 w-16 rounded-full bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.4)] mb-4">
+              <Clock className="h-8 w-8 stroke-[2.5]" />
             </div>
 
-            <span className="text-[11px] font-black uppercase tracking-widest text-emerald-400 font-orbitron">
-              FONEPAY PAYMENT CONFIRMED
+            <span className="text-[11px] font-black uppercase tracking-widest text-amber-400 font-orbitron">
+              DEPOSIT REQUEST SUBMITTED
             </span>
             <h2 className="text-2xl sm:text-3xl font-black text-white font-orbitron mt-1">
-              +{paymentSuccess.credits} Credits Added!
+              +{depositSubmitted.credits} Credits Requested
             </h2>
             <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-              Your payment of <strong className="text-amber-300 font-mono">RS {paymentSuccess.amountRs.toLocaleString()}</strong> has been verified via Fonepay. Your new account balance is ready for launching bot matches.
+              Your deposit of <strong className="text-amber-300 font-mono">RS {depositSubmitted.amountRs.toLocaleString()}</strong> has been submitted to the Admin. As soon as the Admin verifies the payment in the bank records, your credits will be activated immediately.
             </p>
 
-            <div className="w-full mt-4 p-3 rounded-2xl bg-[#0a1f18] border border-emerald-500/30 text-[11px] text-slate-300 space-y-1 font-mono">
+            <div className="w-full mt-4 p-3 rounded-2xl bg-[#20170a] border border-amber-500/30 text-[11px] text-slate-300 space-y-1 font-mono">
               <div className="flex justify-between">
-                <span className="text-slate-400">Transaction Remark:</span>
-                <span className="text-emerald-300 font-bold">{paymentSuccess.remark}</span>
+                <span className="text-slate-400">Transaction Ref:</span>
+                <span className="text-amber-300 font-bold">{depositSubmitted.remark}</span>
               </div>
-              {paymentSuccess.billId && (
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Fonepay Bill ID:</span>
-                  <span className="text-slate-200">{paymentSuccess.billId}</span>
-                </div>
-              )}
+              <div className="flex justify-between">
+                <span className="text-slate-400">Status:</span>
+                <span className="text-amber-400 font-bold flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+                  Pending Admin Approval
+                </span>
+              </div>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-3 w-full mt-6">
               <button
                 type="button"
-                onClick={() => setPaymentSuccess(null)}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#00f0ff] via-[#00e599] to-[#00f0ff] text-slate-950 font-black text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(0,240,255,0.4)] cursor-pointer font-orbitron"
+                onClick={() => setDepositSubmitted(null)}
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(245,158,11,0.4)] cursor-pointer font-orbitron"
               >
-                Top Up More Credits
+                Done / View History
               </button>
               {onClose && (
                 <button
@@ -384,7 +362,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
       )}
 
       {/* MAIN RECHARGE CARD */}
-      {!paymentSuccess && (
+      {!depositSubmitted && (
         <div className="rounded-3xl border border-cyan-500/25 bg-[#08121a]/95 backdrop-blur-2xl p-5 sm:p-7 shadow-[0_0_50px_rgba(0,240,255,0.08)] relative overflow-hidden">
           {/* Ambient Top Neon Glow */}
           <div className="absolute top-0 left-1/4 right-1/4 h-24 bg-gradient-to-b from-cyan-500/10 via-emerald-500/5 to-transparent blur-2xl pointer-events-none" />
@@ -702,31 +680,51 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
                       </span>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
+                    <div className="flex flex-col gap-2 pt-1">
+                      <div className="flex flex-col sm:flex-row items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={verifying}
+                          onClick={() =>
+                            checkVerification(
+                              activeRemark,
+                              qrData.billId || activeRemark,
+                              activeCredits,
+                              totalPayableRs,
+                              true // isManualClick = true
+                            )
+                          }
+                          className="w-full sm:flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer font-orbitron shadow-[0_0_20px_rgba(0,229,153,0.35)] disabled:opacity-50"
+                        >
+                          <RefreshCw className={`h-4 w-4 ${verifying ? "animate-spin" : ""}`} />
+                          <span>{verifying ? "Checking Fonepay API..." : "Auto-Check Fonepay Gateway"}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleCancelQr}
+                          className="w-full sm:w-auto px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                        >
+                          Cancel / Change Pack
+                        </button>
+                      </div>
+
                       <button
                         type="button"
                         disabled={verifying}
                         onClick={() =>
-                          checkVerification(
+                          handleSubmitPaymentForApproval(
                             activeRemark,
                             qrData.billId || activeRemark,
                             activeCredits,
                             totalPayableRs,
-                            true // isManualClick = true
+                            false
                           )
                         }
-                        className="w-full sm:flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer font-orbitron shadow-[0_0_20px_rgba(0,229,153,0.35)] disabled:opacity-50"
+                        className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer font-orbitron shadow-[0_0_20px_rgba(245,158,11,0.35)] disabled:opacity-50"
                       >
-                        <RefreshCw className={`h-4 w-4 ${verifying ? "animate-spin" : ""}`} />
-                        <span>{verifying ? "Checking Fonepay API..." : "Verify Payment"}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleCancelQr}
-                        className="w-full sm:w-auto px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
-                      >
-                        Cancel / Change Pack
+                        <ShieldCheck className="h-4 w-4" />
+                        <span>I Have Paid — Submit for Admin Approval</span>
                       </button>
                     </div>
                   </div>
@@ -743,9 +741,9 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
           <div className="flex items-center justify-between pb-3 border-b border-slate-800/80 mb-3">
             <h3 className="text-xs font-bold text-white uppercase tracking-wider font-orbitron flex items-center gap-2">
               <Clock className="h-3.5 w-3.5 text-cyan-400" />
-              Recent Verified Deposits
+              Recent Deposit Requests & Status
             </h3>
-            <span className="text-[11px] text-slate-400">{myRequests.length} Verified</span>
+            <span className="text-[11px] text-slate-400">{myRequests.length} Total</span>
           </div>
 
           <div className="overflow-x-auto">
@@ -756,12 +754,12 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
                   <th className="py-2 px-2">Ref / Bill ID</th>
                   <th className="py-2 px-2">Amount</th>
                   <th className="py-2 px-2">Credits</th>
-                  <th className="py-2 px-2">Status</th>
+                  <th className="py-2 px-2">Approval Status</th>
                   <th className="py-2 px-2">Date</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/40">
-                {myRequests.slice(0, 5).map((req) => (
+                {myRequests.slice(0, 8).map((req) => (
                   <tr key={req.id} className="hover:bg-slate-800/20">
                     <td className="py-2.5 px-2 uppercase font-bold text-[10px] text-cyan-400">
                       {req.paymentMethod || "Fonepay"}
@@ -772,13 +770,23 @@ export const DepositView: React.FC<DepositViewProps> = ({ onClose }) => {
                     <td className="py-2.5 px-2 font-semibold text-slate-200">
                       RS {req.amountRs.toLocaleString()}
                     </td>
-                    <td className="py-2.5 px-2 font-bold text-emerald-400">
-                      +{req.credits} Credits
+                    <td className="py-2.5 px-2 font-bold text-cyan-300 font-mono">
+                      +{req.credits} Cr
                     </td>
                     <td className="py-2.5 px-2">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
-                        <CheckCircle2 className="h-3 w-3" /> Verified
-                      </span>
+                      {req.status === "approved" ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
+                          <CheckCircle2 className="h-3 w-3" /> Approved (+{req.credits} Cr)
+                        </span>
+                      ) : req.status === "rejected" ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-950/80 border border-rose-500/30 text-rose-400 text-[10px] font-bold">
+                          <XCircle className="h-3 w-3" /> Rejected
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-950/80 border border-amber-500/30 text-amber-400 text-[10px] font-bold">
+                          <Clock className="h-3 w-3 animate-pulse" /> Pending Admin Approval
+                        </span>
+                      )}
                     </td>
                     <td className="py-2.5 px-2 text-slate-400 text-[10px]">
                       {new Date(req.createdAt).toLocaleDateString()}

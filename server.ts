@@ -136,21 +136,8 @@ export interface LaunchLedgerEntry {
   notes?: string;
 }
 
-// In-memory launch ledger seeded with today's activity
-const launchLedger: LaunchLedgerEntry[] = [
-  {
-    id: "launch_test_18222576916",
-    timestamp: "2026-09-18T14:54:23.000Z",
-    guildId: "1000000000",
-    server: "IND",
-    userEmail: "system_verification_test",
-    groupId: "18222576916",
-    creditsDeducted: 1,
-    creditsLeft: 41,
-    status: "success",
-    notes: "API health check test launch on dummy guild 1000000000 (reduced balance from 42 to 41)",
-  },
-];
+// In-memory launch ledger tracking actual bot launches
+const launchLedger: LaunchLedgerEntry[] = [];
 
 // Anti-duplicate launch cooldown map (guildId -> timestamp)
 const recentLaunchTimestamps = new Map<string, number>();
@@ -168,33 +155,70 @@ const BLOCKED_TEST_GUILD_IDS = new Set([
   "dummy",
 ]);
 
-// FFGlory: Launch Bot (Internal Server Proxy)
+// FFGlory: Launch Bot (Internal Server Proxy with Strict Credit Guard)
 const handleFFGloryLaunch = async (req: express.Request, res: express.Response) => {
   try {
-    const { server, region, guild_server, guild_id, user_email } = req.body;
-    const clientUserEmail = req.headers["x-user-email"] || user_email || "anonymous";
+    const { server, region, guild_server, guild_id, user_email, user_id } = req.body;
+    const clientUserEmail = String(req.headers["x-user-email"] || user_email || "").trim().toLowerCase();
+    const clientUserId = String(req.headers["x-user-id"] || user_id || "").trim();
+    const authHeader = String(req.headers["authorization"] || "");
+    const idToken = authHeader.startsWith("Bearer ") ? authHeader.substring(7).trim() : String(req.body.id_token || "");
 
+    const isSuperAdmin = Boolean(
+      clientUserEmail === "subashsubedi980@gmail.com" ||
+      clientUserEmail === "subash@glory.com"
+    );
+
+    // Guard 1: Valid Free Fire Guild ID
     if (!guild_id || typeof guild_id !== "string" || !guild_id.trim()) {
       return res.status(400).json({ error: "Valid Free Fire Guild ID is required" });
     }
 
     const cleanGuildId = String(guild_id).trim();
 
-    // 1. Safety Guard: Reject dummy or test IDs to protect paid reseller credits
+    // Guard 2: Reject dummy or test IDs to protect paid reseller credits
     if (BLOCKED_TEST_GUILD_IDS.has(cleanGuildId) || /^0+$/.test(cleanGuildId)) {
       return res.status(400).json({
         error: "Test / dummy Guild IDs (such as 1000000000) are blocked to protect your paid credit balance. Please provide a real Free Fire Guild ID.",
       });
     }
 
-    // 2. Guild ID Format Guard: Must be numeric between 6 and 14 digits
+    // Guard 3: Guild ID Format Guard (Must be numeric between 6 and 14 digits)
     if (!/^\d{6,14}$/.test(cleanGuildId)) {
       return res.status(400).json({
         error: "Invalid Guild ID format. Free Fire Guild IDs must be 6 to 14 numeric digits.",
       });
     }
 
-    // 3. Anti-Spam / Anti-Duplicate Cooldown Guard (45 seconds per guild ID)
+    // Guard 4: Authentication check - User must be identified
+    if (!isSuperAdmin && (!clientUserEmail || clientUserEmail === "anonymous")) {
+      return res.status(401).json({
+        error: "Authentication required: Please log in to your account with approved credits before launching bots.",
+      });
+    }
+
+    // Guard 5: Strictly verify user credit balance in Firebase RTDB before touching paid provider
+    if (clientUserId && idToken && !isSuperAdmin) {
+      try {
+        const rtdbUrl = `https://tech-store-e4449-default-rtdb.firebaseio.com/users/${encodeURIComponent(clientUserId)}.json?auth=${encodeURIComponent(idToken)}`;
+        const userFetch = await fetch(rtdbUrl);
+        if (userFetch.ok) {
+          const userRecord = await userFetch.json();
+          if (userRecord) {
+            const availableCredits = typeof userRecord.credits === "number" ? userRecord.credits : 0;
+            if (availableCredits < 1) {
+              return res.status(403).json({
+                error: `Insufficient approved credits. Your balance is ${availableCredits} Credits. You must purchase credits and wait for Admin approval before launching bots.`,
+              });
+            }
+          }
+        }
+      } catch (errCheck) {
+        console.warn("RTDB credit check error:", errCheck);
+      }
+    }
+
+    // Guard 6: Anti-Spam / Anti-Duplicate Cooldown Guard (45 seconds per guild ID)
     const now = Date.now();
     const lastLaunchTime = recentLaunchTimestamps.get(cleanGuildId);
     if (lastLaunchTime && now - lastLaunchTime < 45000) {
@@ -265,6 +289,27 @@ const handleFFGloryLaunch = async (req: express.Request, res: express.Response) 
 
     console.log(`[FFGLORY LAUNCH SUCCESS] Dispatched to ${targetServer} for guild ${cleanGuildId}`);
     const sanitized = sanitizeUpstreamData(data) || {};
+
+    // Deduct 1 credit atomically on server side if user credentials are provided
+    if (clientUserId && idToken) {
+      try {
+        const getCreditUrl = `https://tech-store-e4449-default-rtdb.firebaseio.com/users/${encodeURIComponent(clientUserId)}/credits.json?auth=${encodeURIComponent(idToken)}`;
+        const curCreditRes = await fetch(getCreditUrl);
+        if (curCreditRes.ok) {
+          const curVal = await curCreditRes.json();
+          if (typeof curVal === "number") {
+            const nextVal = Math.max(0, curVal - 1);
+            await fetch(getCreditUrl, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(nextVal),
+            });
+          }
+        }
+      } catch (deductErr) {
+        console.warn("Backend credit sync warning:", deductErr);
+      }
+    }
 
     // Record successful launch in audit ledger
     launchLedger.unshift({

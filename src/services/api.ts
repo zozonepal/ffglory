@@ -126,15 +126,21 @@ export function normalizeServerCode(code?: string): string {
 export async function launchBotAction(
   guildId: string,
   server: string = "IND",
-  userEmail?: string
+  userEmail?: string,
+  userId?: string,
+  idToken?: string
 ): Promise<any> {
   const targetServer = normalizeServerCode(server);
-  const payload = {
+  const payload: Record<string, any> = {
     server: targetServer,
     region: targetServer,
     guild_id: guildId.trim(),
     user_email: userEmail,
+    user_id: userId,
   };
+  if (idToken) {
+    payload.id_token = idToken;
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -142,6 +148,12 @@ export async function launchBotAction(
   };
   if (userEmail) {
     headers["x-user-email"] = userEmail;
+  }
+  if (userId) {
+    headers["x-user-id"] = userId;
+  }
+  if (idToken) {
+    headers["authorization"] = `Bearer ${idToken}`;
   }
 
   try {

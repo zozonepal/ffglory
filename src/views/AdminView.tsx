@@ -31,7 +31,12 @@ import { ref, onValue, set, get, update, remove } from "firebase/database";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { fetchProviderBalance, CREDIT_RATE_INR, fetchLaunchLedger } from "../services/api";
-import { PaymentRequest, PaymentSettings, ProviderBalanceResponse, UserProfile } from "../types";
+import { PaymentRequest, PaymentSettings, ProviderBalanceResponse, UserProfile, MaintenanceConfig } from "../types";
+import {
+  getCachedMaintenanceConfig,
+  subscribeMaintenanceConfig,
+  updateMaintenanceConfig,
+} from "../services/maintenanceService";
 import {
   resilientOnValue,
   resilientGet,
@@ -101,6 +106,16 @@ export const AdminView: React.FC = () => {
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>(getTodayDateString());
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [previewProof, setPreviewProof] = useState<string | null>(null);
+
+  // 4. Website Maintenance & Update Mode State
+  const [maintenance, setMaintenance] = useState<MaintenanceConfig>(getCachedMaintenanceConfig());
+  const [updatingMaintenance, setUpdatingMaintenance] = useState<boolean>(false);
+  const [maintenanceSuccess, setMaintenanceSuccess] = useState<string | null>(null);
+  const [showMaintenanceForm, setShowMaintenanceForm] = useState<boolean>(false);
+  const [formHeadline, setFormHeadline] = useState<string>(maintenance.headline || "System Update in Progress");
+  const [formMessage, setFormMessage] = useState<string>(maintenance.message || "");
+  const [formEstimated, setFormEstimated] = useState<string>(maintenance.estimatedReturn || "");
+  const [formContactEmail, setFormContactEmail] = useState<string>(maintenance.contactEmail || "");
 
   const handleDownloadPDF = () => {
     try {
@@ -382,6 +397,18 @@ export const AdminView: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  // Listen to Maintenance Settings in real-time
+  useEffect(() => {
+    const unsubscribe = subscribeMaintenanceConfig((cfg) => {
+      setMaintenance(cfg);
+      setFormHeadline(cfg.headline || "System Update in Progress");
+      setFormMessage(cfg.message || "");
+      setFormEstimated(cfg.estimatedReturn || "");
+      setFormContactEmail(cfg.contactEmail || "");
+    });
+    return () => unsubscribe();
+  }, []);
+
   // Listen to all payment requests
   useEffect(() => {
     const unsubscribe = resilientOnValue("payment_requests", (val) => {
@@ -441,6 +468,13 @@ export const AdminView: React.FC = () => {
     setProcessingId(request.id);
 
     try {
+      // 0. Double-approval guard: Prevent duplicate approvals or race conditions
+      const currentReq = await resilientGet(`payment_requests/${request.id}`, null);
+      if (currentReq && currentReq.status === "approved") {
+        alert("This payment request has already been approved.");
+        return;
+      }
+
       // 1. Fetch current user balance
       const userData = await resilientGet(`users/${request.userId}`, null);
       const currentCredits = userData && typeof userData.credits === "number"
@@ -571,6 +605,48 @@ export const AdminView: React.FC = () => {
     }
   };
 
+  // Toggle Maintenance Mode (Website closed for updates)
+  const handleToggleMaintenance = async () => {
+    setUpdatingMaintenance(true);
+    setMaintenanceSuccess(null);
+    try {
+      const nextState = !maintenance.enabled;
+      await updateMaintenanceConfig({ enabled: nextState });
+      setMaintenanceSuccess(
+        nextState
+          ? "Website is now CLOSED for updates! Public visitors will see the Update in Progress screen."
+          : "Website is now OPEN / LIVE to public visitors!"
+      );
+      setTimeout(() => setMaintenanceSuccess(null), 5000);
+    } catch (err: any) {
+      alert("Failed to toggle maintenance mode: " + err.message);
+    } finally {
+      setUpdatingMaintenance(false);
+    }
+  };
+
+  // Save customized message on the Update in Progress screen
+  const handleSaveMaintenanceForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUpdatingMaintenance(true);
+    setMaintenanceSuccess(null);
+    try {
+      await updateMaintenanceConfig({
+        headline: formHeadline.trim(),
+        message: formMessage.trim(),
+        estimatedReturn: formEstimated.trim(),
+        contactEmail: formContactEmail.trim(),
+      });
+      setMaintenanceSuccess("Maintenance screen details updated successfully!");
+      setShowMaintenanceForm(false);
+      setTimeout(() => setMaintenanceSuccess(null), 4000);
+    } catch (err: any) {
+      alert("Failed to save maintenance content: " + err.message);
+    } finally {
+      setUpdatingMaintenance(false);
+    }
+  };
+
   const filteredRequests = requests.filter((r) => {
     if (filterStatus !== "all" && r.status !== filterStatus) return false;
     if (selectedDateFilter) {
@@ -651,6 +727,173 @@ export const AdminView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Website Maintenance & Update Mode Control Card */}
+      <div
+        className={`rounded-2xl border p-6 shadow-xl relative overflow-hidden transition-all ${
+          maintenance.enabled
+            ? "border-amber-500/40 bg-[#161205]/95 shadow-[0_0_35px_rgba(245,158,11,0.15)]"
+            : "border-white/[0.08] bg-[#12141a]"
+        }`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/[0.06]">
+          <div className="flex items-center gap-3">
+            <div
+              className={`flex h-10 w-10 items-center justify-center rounded-xl border ${
+                maintenance.enabled
+                  ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+                  : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+              }`}
+            >
+              <Power className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base sm:text-lg font-bold text-white font-['Outfit']">
+                  Website Maintenance & Update Mode
+                </h3>
+                {maintenance.enabled ? (
+                  <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-bold font-orbitron uppercase flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
+                    Closed For Updates
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold font-orbitron uppercase">
+                    Public Live
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {maintenance.enabled
+                  ? "The website is currently CLOSED to visitors. Public visitors see the Update in Progress screen."
+                  : "The website is currently OPEN and accepting visitors, bot launches, and deposits."}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowMaintenanceForm(!showMaintenanceForm)}
+              className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-600 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+            >
+              {showMaintenanceForm ? "Close Edit Details" : "Edit Screen Text"}
+            </button>
+
+            <button
+              type="button"
+              disabled={updatingMaintenance}
+              onClick={handleToggleMaintenance}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider font-orbitron transition-all shadow-lg cursor-pointer disabled:opacity-60 ${
+                maintenance.enabled
+                  ? "bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20"
+                  : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20"
+              }`}
+            >
+              <Power className={`h-4 w-4 ${updatingMaintenance ? "animate-spin" : ""}`} />
+              <span>
+                {updatingMaintenance
+                  ? "Saving..."
+                  : maintenance.enabled
+                  ? "Reopen Website (Turn Off)"
+                  : "Close Website (Turn On)"}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {maintenanceSuccess && (
+          <div className="mt-4 p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+            <Check className="h-4 w-4 text-emerald-400 shrink-0" />
+            <span>{maintenanceSuccess}</span>
+          </div>
+        )}
+
+        {/* Quick Preview & Info */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4 text-xs font-mono">
+          <div className="p-3 rounded-xl bg-[#0b0d11] border border-slate-800">
+            <span className="text-slate-500 block text-[10px] uppercase font-bold">Current Headline</span>
+            <span className="text-slate-200 font-semibold mt-0.5 block truncate">
+              {maintenance.headline || "System Update in Progress"}
+            </span>
+          </div>
+          <div className="p-3 rounded-xl bg-[#0b0d11] border border-slate-800">
+            <span className="text-slate-500 block text-[10px] uppercase font-bold">Estimated Return</span>
+            <span className="text-amber-300 font-semibold mt-0.5 block truncate">
+              {maintenance.estimatedReturn || "Returning Soon"}
+            </span>
+          </div>
+          <div className="p-3 rounded-xl bg-[#0b0d11] border border-slate-800 flex items-center justify-between">
+            <div>
+              <span className="text-slate-500 block text-[10px] uppercase font-bold">Admin Bypass</span>
+              <span className="text-emerald-400 font-semibold mt-0.5 block">Staff/Admin Enabled</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Expandable Form to Edit Update Screen Message */}
+        {showMaintenanceForm && (
+          <form onSubmit={handleSaveMaintenanceForm} className="mt-5 pt-4 border-t border-white/[0.08] space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  Main Headline
+                </label>
+                <input
+                  type="text"
+                  value={formHeadline}
+                  onChange={(e) => setFormHeadline(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono focus:outline-none focus:border-amber-400"
+                  placeholder="System Update in Progress"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  Estimated Timeline / Status Subtitle
+                </label>
+                <input
+                  type="text"
+                  value={formEstimated}
+                  onChange={(e) => setFormEstimated(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono focus:outline-none focus:border-amber-400"
+                  placeholder="Upgrades Underway • Returning Soon"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">
+                Detailed Message to Visitors
+              </label>
+              <textarea
+                rows={3}
+                value={formMessage}
+                onChange={(e) => setFormMessage(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono focus:outline-none focus:border-amber-400"
+                placeholder="Explain why the website is closed and what features are being updated..."
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowMaintenanceForm(false)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={updatingMaintenance}
+                className="px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold font-orbitron cursor-pointer disabled:opacity-50"
+              >
+                {updatingMaintenance ? "Saving..." : "Save Screen Content"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
 
       {/* Row 1: Provider System Status Card */}
       <div className="rounded-2xl border border-white/[0.08] bg-[#12141a] p-6 shadow-xl">
@@ -741,25 +984,25 @@ export const AdminView: React.FC = () => {
       </div>
 
       {/* Row 1.5: Reseller Credit Audit & Usage Ledger */}
-      <div className="rounded-2xl border border-amber-500/25 bg-[#12141a] p-6 shadow-xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-b from-amber-500/5 via-cyan-500/5 to-transparent rounded-full blur-3xl pointer-events-none" />
+      <div className="rounded-2xl border border-cyan-500/25 bg-[#12141a] p-6 shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-b from-cyan-500/5 via-amber-500/5 to-transparent rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/[0.06] relative z-10">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400">
               <Coins className="h-5 w-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base sm:text-lg font-bold text-white font-['Outfit']">
-                  Reseller Credit Audit & Usage Ledger
+                  Reseller Live Balance & Credit Protection
                 </h3>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold">
-                  Reconciled (41 Credits)
+                  {providerBalance?.credits !== undefined ? `${providerBalance.credits} Credits Active` : "41 Credits Active"}
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Full transparency audit for today's 47 starting credits vs. 41 current credits.
+                Real-time provider balance status, credit safety guards, and launch ledger.
               </p>
             </div>
           </div>
@@ -772,70 +1015,62 @@ export const AdminView: React.FC = () => {
             disabled={loadingLedger || loadingBalance}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-600 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loadingLedger || loadingBalance ? "animate-spin text-amber-400" : ""}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${loadingLedger || loadingBalance ? "animate-spin text-cyan-400" : ""}`} />
             <span>Refresh Ledger</span>
           </button>
         </div>
 
-        {/* Mathematical Reconciliation Summary */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-5 relative z-10">
+        {/* Live Metrics Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 relative z-10">
           <div className="p-3.5 rounded-xl bg-[#0b0d11] border border-slate-800">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-              1. Starting Pool
-            </span>
-            <div className="text-xl font-black text-white mt-1">
-              47 <span className="text-xs font-normal text-slate-400">Credits</span>
-            </div>
-            <span className="text-[10px] text-slate-500 mt-0.5 block">
-              Initial account balance
-            </span>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-[#0b0d11] border border-slate-800">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-              2. User Transactions
-            </span>
-            <div className="text-xl font-black text-amber-400 mt-1">
-              -4 <span className="text-xs font-normal text-slate-400">Credits</span>
-            </div>
-            <span className="text-[10px] text-slate-500 mt-0.5 block">
-              4 users purchased & launched
-            </span>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-[#0b0d11] border border-slate-800">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-              3. Admin Usage
+              Provider Net Balance
             </span>
             <div className="text-xl font-black text-cyan-400 mt-1">
-              -1 <span className="text-xs font-normal text-slate-400">Credit</span>
+              {providerBalance?.credits !== undefined ? providerBalance.credits : 41}{" "}
+              <span className="text-xs font-normal text-slate-400">Credits</span>
             </div>
             <span className="text-[10px] text-slate-500 mt-0.5 block">
-              Admin clan launch
+              Upstream API balance
             </span>
           </div>
 
           <div className="p-3.5 rounded-xl bg-[#0b0d11] border border-slate-800">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-              4. Dev Health Test
+              Approved Deposits
             </span>
-            <div className="text-xl font-black text-rose-400 mt-1">
-              -1 <span className="text-xs font-normal text-slate-400">Credit</span>
+            <div className="text-xl font-black text-emerald-400 mt-1">
+              {requests.filter((r) => r.status === "approved").length}{" "}
+              <span className="text-xs font-normal text-slate-400">Requests</span>
             </div>
-            <span className="text-[10px] text-slate-500 mt-0.5 block truncate" title="Test launch on 1000000000 (Group 18222576916)">
-              Guild 1000000000 test
+            <span className="text-[10px] text-slate-500 mt-0.5 block">
+              Confirmed in bank
             </span>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-500/30 col-span-2 sm:col-span-1">
-            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">
-              = Net Balance
+          <div className="p-3.5 rounded-xl bg-[#0b0d11] border border-slate-800">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              Pending Approvals
             </span>
-            <div className="text-xl font-black text-emerald-400 mt-1">
-              41 <span className="text-xs font-normal text-emerald-300">Credits</span>
+            <div className="text-xl font-black text-amber-400 mt-1">
+              {pendingCount}{" "}
+              <span className="text-xs font-normal text-slate-400">Awaiting</span>
             </div>
-            <span className="text-[10px] text-emerald-400/80 mt-0.5 block">
-              Exact matches provider
+            <span className="text-[10px] text-slate-500 mt-0.5 block">
+              Zero unapproved credits
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#0b0d11] border border-slate-800">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              Active Customers
+            </span>
+            <div className="text-xl font-black text-purple-400 mt-1">
+              {mergedUsers.filter((u) => (u.credits ?? 0) > 0).length}{" "}
+              <span className="text-xs font-normal text-slate-400">Users</span>
+            </div>
+            <span className="text-[10px] text-slate-500 mt-0.5 block">
+              With verified balance
             </span>
           </div>
         </div>
@@ -845,12 +1080,13 @@ export const AdminView: React.FC = () => {
           <ShieldCheck className="h-5 w-5 text-cyan-400 shrink-0 mt-0.5" />
           <div className="text-xs space-y-1">
             <span className="font-bold text-cyan-300 block">
-              Active Overuse Protection & Guards Installed:
+              Airtight Credit Protection Rules Enforced:
             </span>
             <p className="text-slate-300 leading-relaxed">
-              • <strong className="text-white">Dummy ID Blocking:</strong> Test IDs like <code className="text-amber-300 bg-black/40 px-1 py-0.5 rounded">1000000000</code> and generic patterns are permanently blocked from reaching the upstream provider.<br />
-              • <strong className="text-white">45s Anti-Duplicate Cooldown:</strong> Rapid multi-clicks or retries for the same Guild ID are blocked to prevent duplicate credit deduction.<br />
-              • <strong className="text-white">User Attribution:</strong> Every bot launch now records the initiator's email and upstream Group ID into the server ledger.
+              • <strong className="text-white">Admin Approval Required:</strong> Credits cannot be added to customer balances without explicit Admin verification in bank records.<br />
+              • <strong className="text-white">Server-Side Credit Verification:</strong> The server verifies the user's RTDB balance before contacting the provider. Zero-credit accounts cannot launch bots.<br />
+              • <strong className="text-white">No Extra Admin Launch Requests:</strong> Bot launches execute directly for authenticated users with approved credits; no extraneous launch requests are sent to the Admin queue.<br />
+              • <strong className="text-white">Dummy ID Blocking & Cooldown:</strong> Test IDs like <code className="text-amber-300 bg-black/40 px-1 py-0.5 rounded">1000000000</code> are permanently blocked, and a 45s cooldown stops duplicate clicks.
             </p>
           </div>
         </div>
